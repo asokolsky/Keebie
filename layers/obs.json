@@ -1,0 +1,13 @@
+{
+    "leds": [],
+    "vars": {
+	"greeting": "obs"
+    },
+    "KEY_KPSLASH": "layer:obs",
+    "KEY_KPASTERISK": "layer:test",
+    "KEY_BACKSPACE": "layer:numpad",
+    "KEY_KP0": "echo '%greeting%!'",
+    "KEY_KP1": "echo '%greeting%!'",
+    "KEY_BACKSPACE": "layer:numpad"
+ }
+ 

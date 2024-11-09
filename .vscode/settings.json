@@ -1,0 +1,9 @@
+{
+    "makefile.configureOnOpen": false,
+    "cSpell.words": [
+        "evdev",
+        "keebie",
+        "numpad",
+        "udev"
+    ]
+}
