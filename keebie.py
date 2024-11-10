@@ -60,9 +60,8 @@ pidPath = os.path.join(dataDir, "running.pid")
 
 # Signal handling
 
-# A bool to track if devices have beed grabbed
+# A bool to track if devices have been grabbed
 devicesAreGrabbed = False
-
 # This process has written to the PID file
 savedPid = False
 # The process has sent a pause signal to a running keebie loop
@@ -121,10 +120,9 @@ class keyLedger():
 
         # Current history of recent key peaks
         self.history = ""
-        self.histories = [] # List of flushed histories
-
-        self.newKeys: List[str] = [] # List of keys newly down
-        self.lostKeys: List[str] = [] # List of keys newly lost
+        self.histories: List[str] = []  # List of flushed histories
+        self.newKeys: List[str] = []    # List of keys newly down
+        self.lostKeys: List[str] = []   # List of keys newly lost
         # List of keys being held down
         self.downKeys: List[str] = []
 
@@ -181,22 +179,22 @@ class keyLedger():
         """
         dprint(f"{self.name}) flushing {self.history}")
         # Add our history to our histories
-        self.histories += [self.history, ]
+        self.histories.append(self.history)
         # Clear our history
         self.history = ""
 
-    def popHistory(self):
+    def popHistory(self) -> str:
         """
         Pop the nest item out of our histories list and return it,
         returns a blank string if no history is available.
         """
-        try:
+        if self.histories:
             dprint(f"{self.name}) popping {self.histories[0]}")
             # Pop and return the first element of our histories list
             return self.histories.pop(0)
 
-        except IndexError: # If no history is available
-            return "" # Return an empty string
+        # If no history is available, return an empty string
+        return ""
 
     def update(self, events=()) -> bool:
         """
@@ -233,13 +231,13 @@ class keyLedger():
                         # If the key is not known to be down
                         if not keycode in self.downKeys:
                             # Add the key to our new keys
-                            self.newKeys += [keycode, ]
+                            self.newKeys.append(keycode)
 
                     elif keystate == event.key_up: # If the key was released
                         # If the key was in our down keys
                         if keycode in self.downKeys:
                             # Add the key to our lost keys
-                            self.lostKeys += [keycode, ]
+                            self.lostKeys.append(keycode)
 
                         else: # If the key was not known to be down
                             # Print a warning
@@ -325,7 +323,7 @@ class macroDevice():
         # The input event file
         self.eventFile = "/dev/input/" + jsonData["event"]
         # Strings for udev matching
-        self.udevTests = jsonData["udev_tests"]
+        self.udevTests: List[str] = jsonData["udev_tests"]
         self.device: Optional[InputDevice] = None
 
     @property
@@ -356,14 +354,10 @@ class macroDevice():
         """
         # Name of the file for the rule
         path = f"{priority}-keebie-{self.name}.rules"
-        rule = ""
-
-        for test in self.udevTests: # For all the udev tests
-            rule += test + ", " # Add them together with commas
-            dprint(rule)
-
         # Save the udev rule filepath for removeDevice()
         writeJson(self.name + ".json", {"udev_rule": path}, deviceDir)
+        rule = ", ".join(self.udevTests)
+        dprint(rule)
 
         # Run the udev setup script with sudo
         subprocess.run([
@@ -466,13 +460,13 @@ class macroDevice():
             # And grab the next one (blank if none are available)
             keycode = self.ledger.popHistory()
 
-    def processKeycode(self, keycode) -> None:
+    def processKeycode(self, keycode: str) -> None:
         """
         Parse a command in our current layer bound to the passed keycode
         (ledger history).
         """
         # Print debug info
-        dprint(f"{self.name} is processing {keycode} in layer {self.currentLayer}")
+        dprint(f"{self.name} processing {keycode} in layer {self.currentLayer}")
 
         value = self.currentLayerJson.get(keycode, None)
         if value is None:
@@ -591,7 +585,7 @@ def setupMacroDevices() -> None:
             # newMacroDeviceList
             newMacroDeviceList += [macroDevice(deviceJson), ]
 
-    # Add the list ofnew devices to the list of preexisting ones
+    # Add the list of the new devices to the list of preexisting ones
     macroDeviceList += newMacroDeviceList
 
 def grabMacroDevices() -> None:
@@ -631,16 +625,16 @@ def readDevices(process=True) -> bool:
             flushedHistories = True
     return flushedHistories
 
-def popDeviceHistories():
+def popDeviceHistories() -> List[str]:
     """Pop and return all histories of all devices as a list."""
-    # A list for poped histories
+    # A list for popped histories
     histories = []
     for device in macroDeviceList:
         keycode = device.ledger.popHistory()
         # As long as the history we have isn't blank
         while keycode:
             # Add it to the list
-            histories += [keycode, ]
+            histories.append(keycode)
             # And grab the next one (blank if none are available)
             keycode = device.ledger.popHistory()
 
@@ -785,7 +779,10 @@ def parseVars(commandStr: str, vars: JSON) -> str:
     """
     Given a command from the layer json file replace vars with their values
     and return the string
+    Fix: how to pass literal %?
+    Backslash percent breaks JSON decoder.  Use %% instead.
     """
+    dprint('parseVars', commandStr, vars)
     returnStr = ''      # The string to be returned
     escaped = False     # we encountered an escape char
     escapeChar = "\\"   # What is our escape char
@@ -818,8 +815,11 @@ def parseVars(commandStr: str, vars: JSON) -> str:
             try :
                 returnStr += vars[varName]
             except KeyError :
-                print(f"unknown var {varName} in command {commandStr}, skipping command")
-                return ""
+                if not varName:
+                    returnStr += '%'
+                else:
+                    print(f"unknown var {varName} in command {commandStr}, skipping command")
+                    return ""
 
             inVar = False
             varName = ""
@@ -833,6 +833,7 @@ def parseVars(commandStr: str, vars: JSON) -> str:
         # If none of the above (because we use continue) add char to returnStr
         returnStr += char
 
+    dprint('parseVars =>', returnStr)
     return returnStr
 
 def getHistory():
@@ -965,7 +966,7 @@ def editSettings() -> None:
     settingsList = []
     # For every key-value pair in our settings dict
     for setting in settings.items():
-        # Add the pair to our list of seting pairs
+        # Add the pair to our list of setting pairs
         settingsList += [setting, ]
     # Ask the user to choose which setting they wish to edit
     print("Choose what value you would like to edit.")
