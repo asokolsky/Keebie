@@ -77,11 +77,13 @@ def signal_handler(signal, frame) -> None:
     end()
 
 def end() -> None:
-    """Properly close the device file and exit the script"""
-    qprint() # Make sure there is a newline
+    """
+    Properly close the device file and exit the script
+    """
+    # Make sure there is a newline
+    qprint()
     # If we need to clean up grabbed macroDevices
     if devicesAreGrabbed:
-        # Ungrab all devices
         ungrabMacroDevices()
         # Cleanly close all devices
         closeDevices()
@@ -107,7 +109,8 @@ class keyLedger():
     as well how how long and how recently."""
 
     def __init__(self, name: str ="unnamed ledger"):
-        self.name = name # Name of the ledger for debug prints
+        # Name of the ledger for debug prints
+        self.name = name
 
         # An int representing the state of the ledger;
         # 0, 1, 2, 3 : rising, falling, holding, stale
@@ -121,66 +124,41 @@ class keyLedger():
         self.history = ""
         self.histories = [] # List of flushed histories
 
-        self.newKeys = [] # List of keys newly down
-        self.lostKeys = [] # List of keys newly lost
+        self.newKeys: List[str] = [] # List of keys newly down
+        self.lostKeys: List[str] = [] # List of keys newly lost
         # List of keys being held down
         self.downKeys: List[str] = []
 
-    def newKeysStr(self) -> str:
-        """Return a str of concatenated new keys."""
-        keysParsed = ""
-
-        for keycode in self.newKeys: # For all new keys
-            # Add them to the string along with a "+"
-            keysParsed += keycode + "+"
-
-        # Return the string we built with the trailing "+" stripped
-        return keysParsed.rstrip("+")
-
-    def lostKeysStr(self) -> str:
-        """Return a str of concatenated lost keys."""
-        keysParsed = ""
-
-        for keycode in self.lostKeys: # For all lost keys
-            # Add them to the string along with a "+"
-            keysParsed += keycode + "+"
-
-        # Return the string we built with the trailing "+" stripped
-        return keysParsed.rstrip("+")
-
-    def downKeysStr(self) -> str:
-        """Return a str of concatenated down keys."""
-        keysParsed = ""
-        # For all down keys
-        for keycode in self.downKeys:
-            # Add them to the string along with a "+"
-            keysParsed += keycode + "+"
-        # Return the string we built with the trailing "+" stripped
-        return keysParsed.rstrip("+")
-
     def stateChange(self, newState, timestamp = None) -> None:
-        """Change the ledger state and record the timestamp."""
-        if not self.state == newState: # If the newState is actually new
-            self.state = newState # Change self.state
+        """
+        Change the ledger state and record the timestamp.
+        """
+        if self.state != newState:
+            self.state = newState
 
-            if timestamp is None: # If no timestamp was specified
-                timestamp = time.time() # Use the current time
+            if timestamp is None:
+                timestamp = time.time()
 
-            self.stateChangeStamp = timestamp # Record the timestamp
+            self.stateChangeStamp = timestamp
             # dprint(f"{self.name}) new state {newState} at {timestamp}")
 
     def stateDuration(self, timestamp = None) -> float:
-        """Return a float of how long our current state has lasted."""
-        if timestamp is None: # If no timestamp was specified
-            timestamp = time.time() # Use the current time
+        """
+        Return a float of how long our current state has lasted.
+        """
+        if timestamp is None:
+            timestamp = time.time()
         # Return the time since state change
         return timestamp - self.stateChangeStamp
 
-    def addHistoryEntry(self, entry = None, held = None, timestamp = None) -> None:
-        """Add an entry to our history."""
+    def addHistoryEntry(self, entry = None, held = None,
+                        timestamp = None) -> None:
+        """
+        Add an entry to our history.
+        """
         if entry is None: # If no entry was specified
             # Use the currently down keys
-            entry = self.downKeysStr()
+            entry = '+'.join(self.downKeys)
         # If the key was held was not specified
         if held is None:
             # Set held True if the length of last state surpassed
@@ -196,10 +174,12 @@ class keyLedger():
         self.history += entry
 
         dprint(f"{self.name}) added {entry} to history")
-        # dprint(f"{self.name}) history is \"{self.history}\"")
+        # dprint(f"{self.name}) history is '{self.history}'")
 
     def flushHistory(self) -> None:
-        """Flush our current history into our histories list."""
+        """
+        Flush our current history into our histories list.
+        """
         dprint(f"{self.name}) flushing {self.history}")
         # Add our history to our histories
         self.histories += [self.history, ]
@@ -207,8 +187,10 @@ class keyLedger():
         self.history = ""
 
     def popHistory(self):
-        """Pop the nest item out of our histories list and return it,
-        returns a blank string if no history is available."""
+        """
+        Pop the nest item out of our histories list and return it,
+        returns a blank string if no history is available.
+        """
         try:
             dprint(f"{self.name}) popping {self.histories[0]}")
             # Pop and return the first element of our histories list
@@ -218,7 +200,8 @@ class keyLedger():
             return "" # Return an empty string
 
     def update(self, events=()) -> bool:
-        """Update the ledger with an iteratable of key events
+        """
+        Update the ledger with an iterable of key events
         (or Nones to update timers).
         Returns a bool if we flushed any histories this time.
         """
@@ -267,10 +250,10 @@ class keyLedger():
                             print(f"{self.name}) Untracked key {keycode} released.")
 
             # if we have new keys (rising edge)
-            if not self.newKeys == []:
+            if self.newKeys:
                 # dprint()
                 dprint(f"{self.name}) >{'>' * len(self.downKeys)} " \
-                    f"rising with new keys {self.newKeysStr()}")
+                    f"rising with new keys {'+'.join(self.newKeys)}")
                 # Add our new keys to our down keys
                 self.downKeys += self.newKeys
                 # Store that we are peaking
@@ -283,10 +266,10 @@ class keyLedger():
 
                 self.stateChange(0, timestamp) # Change to state 0
 
-            elif not self.lostKeys == []: # If we lost keys (falling edge)
+            elif self.lostKeys: # If we lost keys (falling edge)
                 # dprint()
                 dprint(f"{self.name}) {'<' * len(self.downKeys)}" \
-                    f" falling with lost keys {self.lostKeysStr()}")
+                    f" falling with lost keys {'+'.join(self.lostKeys)}")
 
                 if self.peaking:  # If we were peaking
                     # Add current down keys (peak keys) to our history
@@ -301,9 +284,9 @@ class keyLedger():
                 self.stateChange(1, timestamp) # Change to state 1
 
             # If no keys were added or lost, but we still have down keys (holding)
-            elif not self.downKeys == []:
+            elif self.downKeys:
                 # dprint(end = f"{self.name}) {'-' * len(self.downKeys)}" \
-                #     f" holding with down keys {self.downKeysStr()}" \
+                #     f" holding with down keys {'+'.join(self.downKeys)}" \
                 #     f" since {str(self.stateChangeStamp)[7:17]}" \
                 #     f" for {str(self.stateDuration(timestamp))[0:10]}" \
                 #     f" {'held' * (self.stateDuration((timestamp)) > settings['holdThreshold'])}\r")
@@ -329,35 +312,14 @@ class keyLedger():
 
 class macroDevice():
     """
-    Macro device
-    A class for managing devices.
+    Macro device.  A class for managing devices.
     """
-
-    @property
-    def currentLayer(self) -> str:
-        '''
-        Name of the Layer this device is currently on
-        '''
-        return self._currentLayer
-
-    @currentLayer.setter
-    def currentLayer(self, val: str) -> None:
-        '''
-        Set the Name of the Layer this device is currently on
-        '''
-        self._currentLayer = val
-        self._currentLayerJson: Optional[JSON] = None
-        return
-
-    @property
-    def currentLayerJson(self) -> JSON:
-        if self._currentLayerJson is None:
-            self._currentLayerJson = readJson(self.currentLayer)
-        return self._currentLayerJson
 
     def __init__(self, deviceJson) -> None:
         # Name of device for debugging
         self.name = deviceJson.split(".json")[0]
+        # A keyLedger to track input events on this device
+        self.ledger = keyLedger(self.name)
         # Cache the data held in the device json file
         jsonData = readJson(deviceJson, deviceDir)
         # Layer for the device the start on
@@ -368,12 +330,34 @@ class macroDevice():
         self.eventFile = "/dev/input/" + jsonData["event"]
         # Strings for udev matching
         self.udevTests = jsonData["udev_tests"]
-        # A keyLedger to track input events on his devicet
-        self.ledger = keyLedger(self.name)
         self.device: Optional[InputDevice] = None
 
+    @property
+    def currentLayer(self) -> str:
+        '''
+        Name of the Layer this device is currently on
+        '''
+        return self._currentLayer
+
+    @currentLayer.setter
+    def currentLayer(self, val: str) -> str:
+        '''
+        Set the Name of the Layer this device is currently on
+        '''
+        self._currentLayerJson: Optional[JSON] = None
+        self._currentLayer = val
+        return val
+
+    @property
+    def currentLayerJson(self) -> JSON:
+        if self._currentLayerJson is None:
+            self._currentLayerJson = readJson(self.currentLayer)
+        return self._currentLayerJson
+
     def addUdevRule(self, priority = 85) -> None:
-        """Generate a udev rule for this device."""
+        """
+        Generate a udev rule for this device.
+        """
         # Name of the file for the rule
         path = f"{priority}-keebie-{self.name}.rules"
         rule = ""
@@ -386,18 +370,21 @@ class macroDevice():
         writeJson(self.name + ".json", {"udev_rule": path}, deviceDir)
 
         # Run the udev setup script with sudo
-        subprocess.run(
-            ["sudo", "sh", installDataDir + "/setup_tools/udevRule.sh",
-             rule, path])
-
+        subprocess.run([
+            "sudo",
+            "sh",
+            os.join.path(installDataDir, "setup_tools/udevRule.sh"),
+            rule,
+            path
+        ])
         # Force udev to parse the new rule for the device
         subprocess.run(
-            ["sudo", "udevadm", "test", "/sys/class/input/event3"],
+            ["sudo", "udevadm", "test", "/sys/class/input/event3"],  # event3??
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def grabDevice(self) -> None:
         """Grab the device and set self.device to the grabbed device."""
-        qprint("grabbing device " + self.name)
+        qprint("grabbing device", self.name)
         # Set self.device to the device of self.eventFile
         self.device = InputDevice(self.eventFile)
         qprint("device:", self.name)
@@ -411,13 +398,13 @@ class macroDevice():
 
     def ungrabDevice(self):
         """Ungrab the device."""
-        qprint("ungrabbing device " + self.name)
+        qprint("ungrabbing device", self.name)
         # Do the thing that got said twice
         self.device.ungrab()
 
     def close(self):
         """Try to close the device file gracefully."""
-        qprint("closing device " + self.name)
+        qprint("closing device", self.name)
 
         self.device.close() # Close the device
 
@@ -496,8 +483,8 @@ class macroDevice():
             # the keycode is NOT in our current layer's json
             return
 
-        # Parse any varables that may appear in the command
-        value = parseVars(value, self.currentLayerJson)
+        # Parse any variables that may appear in the command
+        value = parseVars(value, self.currentLayerJson.get('vars', {}))
         if value.startswith("layer:"):
             # this is a layer switch command
             jfile = value.split(':')[-1] + ".json"
@@ -542,7 +529,7 @@ class macroDevice():
         #
         else:
             # Notify the user of the command
-            print(keycode + ": " + value)
+            print(keycode + ":", value)
 
         # Notify the user we are running a script
         print("Executing", value)
@@ -599,11 +586,11 @@ def setupMacroDevices() -> None:
         for device in macroDeviceList:
             if deviceJson == device.name + ".json":
                 # If the new device is already known
-                dprint(f"Device {device.name} already known")
+                dprint("Known device", device.name)
                 break
 
         else: # If the loop was never broken
-            dprint("New device " + deviceJson)
+            dprint("New device:", deviceJson)
             # Set up a macroDevice instance for all files and save them to
             # newMacroDeviceList
             newMacroDeviceList += [macroDevice(deviceJson), ]
@@ -695,8 +682,10 @@ def readJson(filename: str, dir: str = layerDir) -> JSON:
     return res
 
 def writeJson(filename: str, data: JSON, dir: str = layerDir) -> None:
-    """Appends new data to a specified layer (or any json file named filename
-    in the directory dir)"""
+    """
+    Appends new data to a specified layer
+    (or any json file named filename in the directory dir)
+    """
     fpath = os.path.join(dir, filename)
     try:
         # Open an existing file
@@ -712,16 +701,21 @@ def writeJson(filename: str, data: JSON, dir: str = layerDir) -> None:
         json.dump(prevData, outfile, indent=3)
 
 def popDictRecursive(dct, keyList) -> None:
-    """Given a dict and list of key names of dicts follow said list into the
-    dicts recursivly and pop the finall result, it's hard to explain"""
+    """
+    Given a dict and a list of key names of dicts
+    follow said list into the dicts recursively and pop the final result,
+    it's hard to explain
+    """
     if len(keyList) == 1:
         dct.pop(keyList[0])
     elif len(keyList) > 1:
         popDictRecursive(dct[keyList[0]], keyList[1:])
 
 def popJson(filename, key, dir = layerDir) -> None:
-    """Removes the key key and it's value from a layer (or any json file named
-    filename in the directory dir)"""
+    """
+    Removes the key key and it's value from a layer
+    (or any json file named filename in the directory dir)
+    """
     fpath = os.path.join(dir, filename)
     with open(fpath) as f:
         prevData = json.load(f)
@@ -785,70 +779,70 @@ def getSettings() -> None:
         if type == settingsPossible[setting][0]:
             # If the value in our settings file is valid
             if type(settingsFile[setting]) in settingsPossible[setting]:
-                dprint(f"Found valid typed value: \"{type(settingsFile[setting])}\" for setting: \"{setting}\"")
+                dprint(f"Found valid typed value: '{type(settingsFile[setting])}' for setting: '{setting}'")
                 # Write it into our settings
                 settings[setting] = settingsFile[setting]
-            else :
+            else:
                 # Warn the user of invalid settings in the settings file
-                print(f"Value: \"{settingsFile[setting]}\" for setting: \"{setting}\" is of invalid type, defaulting to {settings[setting]}")
+                print(f"Value: '{settingsFile[setting]}' for setting: '{setting}' is of invalid type, defaulting to {settings[setting]}")
         # If the value in our settings file is valid
         elif settingsFile[setting] in settingsPossible[setting]:
-            dprint(f"Found valid value: \"{settingsFile[setting]}\" for setting: \"{setting}\"")
+            dprint(f"Found valid value: '{settingsFile[setting]}' for setting: '{setting}'")
             # Write it into our settings
             settings[setting] = settingsFile[setting]
         else :
             # Warn the user of invalid settings in the settings file
-            print(f"Value: \"{settingsFile[setting]}\" for setting: \"{setting}\" is invalid, defaulting to {settings[setting]}")
+            print(f"Value: '{settingsFile[setting]}' for setting: '{setting}' is invalid, defaulting to {settings[setting]}")
     # Debug info
     dprint(f"Settings are {settings}")
 
 # Keypress processing
 
-def parseVars(commandStr, layerJson) -> str:
+def parseVars(commandStr: str, vars: JSON) -> str:
     """
     Given a command from the layer json file replace vars with their values
     and return the string
     """
-    # Vars we will need in the loop
-    returnStr = "" # The string to be retuned
-    escaped = False # If we previously encountered an escape char
-    escapeChar = "\\" # What is out escape char
-    varChars = ("%", "%") # What characters start and end a varable name
-    inVar = False # If we are in a varable name
-    varName = "" # What the varables name is so far
+    returnStr = ''      # The string to be returned
+    escaped = False     # we encountered an escape char
+    escapeChar = "\\"   # What is our escape char
+    varChars = ("%", "%") # What characters start and end a variable name
+    inVar = False       # If we are in a variable name
+    varName = ''        # What the variables name is so far
 
     # Iterate over the chars of the input
-    for char in commandStr :
+    for char in commandStr:
         if escaped:
             # If char is escaped add it unconditionally and reset escaped
             returnStr += char
             escaped = False
             continue
 
-        if escaped == False and char == escapeChar :
+        elif char == escapeChar:
             # If char is en unescaped escape char set escaped
             escaped = True
             continue
 
-        if inVar == False and char == varChars[0] :
-            # If we arn't in a varable and chars is the start of one set inVar
+        # If we aren't in a variable and chars is the start of one set inVar
+        if (not inVar) and char == varChars[0] :
             inVar = True
             continue
 
+        # If we are in a variable and char ends it
         if inVar and char == varChars[1] :
-            # If we are in a varable and char ends it parse the varables value,
+            # parse the variables value,
             # add it to returnStr if valid, and reset inVar and varName
             try :
-                returnStr += layerJson["vars"][varName]
+                returnStr += vars[varName]
             except KeyError :
-                print(f"unknown var {varName} in command {commandStr}, skiping command")
+                print(f"unknown var {varName} in command {commandStr}, skipping command")
                 return ""
 
             inVar = False
             varName = ""
             continue
 
-        # If we are in a varable name add char to varName
+        # If we are in a variable name, add char to varName
         if inVar:
             varName += char
             continue
@@ -856,14 +850,15 @@ def parseVars(commandStr, layerJson) -> str:
         # If none of the above (because we use continue) add char to returnStr
         returnStr += char
 
-    # All done, return the result
     return returnStr
 
 def getHistory():
-    """Return the first key history we get from any of our devices"""
-    clearDeviceLedgers() # Clear all device ledgers
+    """
+    Return the first key history we get from any of our devices
+    """
+    clearDeviceLedgers()
 
-    # Read events until a history is flushed
+    # Read events until the history is flushed
     while not readDevices(False):
         # Sleep so we don't eat the poor little CPU
         time.sleep(settings["loopDelay"])
@@ -875,8 +870,10 @@ def getHistory():
 # Shells
 
 def getLayers():
-    """Lists all the json files in /layers and their contents"""
-    print("Available Layers: \n")
+    """
+    Lists all the json files in /layers and their contents
+    """
+    print("Available Layers:\n")
     layerFt = ".json"
     layerFi = {}
     # Get a list of paths to all files that match our file extension
@@ -889,14 +886,16 @@ def getLayers():
             layerFi[f] = file_object.read()
 
     for i in layerFi:
-        # And display thier contents to the user
+        # And display their contents to the user
         print(i + layerFi[i])
     end()
 
 def detectKeyboard(path = "/dev/input/by-id/"):
-    """Detect what file a keypress is coming from"""
+    """
+    Detect what file a keypress is coming from
+    """
     # Warn the user we need sudo
-    print("Gaining sudo to watch root owned files, sudo may prompt you for a password")
+    print("Gaining sudo to watch root owned files, may prompt you for a password")
     # Get sudo
     subprocess.run(["sudo", "echo",  "have sudo"])
 
@@ -911,23 +910,26 @@ def detectKeyboard(path = "/dev/input/by-id/"):
 
 def addKey(layer = "default.json", key = None, command = None,
            keycodeTimeout = 1) -> None:
-    """Shell for adding new macros"""
+    """
+    Shell for adding new macros
+    """
     if key is None and command is None:
         relaunch = True
     else:
         relaunch = False
 
     if command is None:
-        # Get the command the user wishs to bind
-        command = input("Enter the command you would like to attribute to a key on your second keyboard \n")
+        # Get the command the user wishes to bind
+        command = input("Enter the command you would like to attribute to a key on your keyboard\n")
         # If the user entered a layer switch command
         if command.startswith("layer:"):
-            # Check if the layer json file exsits
-            if not os.path.exists(command.split(':')[-1] + ".json"):
+            # Check if the layer json file exits
+            path = command.split(':')[-1] + ".json"
+            if not os.path.exists(path):
                 # If not create it
-                createLayer(command.split(':')[-1] + ".json")
+                createLayer(path)
                 # And notify the user
-                print("Created layer file: " + command.split(':')[-1] + ".json")
+                print("Created layer file:", path)
 
                 print("standard LEDs:")
                 for led in standardLeds.items(): # For all LEDs on most boards
@@ -935,17 +937,18 @@ def addKey(layer = "default.json", key = None, command = None,
 
                 # Prompt the user for a list of LED numbers
                 onLeds = input("Please choose what LEDs should be enable on this layer (comma and/or space separated list)")
-                onLeds = onLeds.replace(",", " ").split() # Split the input list
-
+                # Split the input list
+                onLeds = onLeds.replace(",", " ").split()
                 onLedsInt = []
-                for led in onLeds: # For all strs in the split list
+                # For all strs in the split list
+                for led in onLeds:
                     # Cast the str to int and add it to a list
                     onLedsInt.append(int(led))
                 # Write the input list to the layer file
-                writeJson(command.split(':')[-1] + ".json", {"leds": onLedsInt})
+                writeJson(path, {"leds": onLedsInt})
 
     if key is None:
-        print(f"Please the execute keystrokes you would like to assign the command to and wait for the next prompt.")
+        print(f"Please the execute the keystrokes you would like to assign to the command to and wait for the next prompt.")
         key = getHistory()
 
     # Ask the user if we (and they) got the command and binding right
@@ -969,7 +972,9 @@ def addKey(layer = "default.json", key = None, command = None,
         end()
 
 def editSettings() -> None:
-    """Shell for editing settings"""
+    """
+    Shell for editing settings
+    """
 
     # Get a dict of the keys and values in our settings file
     settingsFile = readJson("settings.json", dataDir)
@@ -1002,8 +1007,8 @@ def editSettings() -> None:
         # If the users input corresponds to a listed setting
         # Store the selected setting's name
         settingSelected = settingsList[int(selection) - 1][0]
-        # Tell the user we are thier selection
-        print(f"Editing item \"{settingSelected}\"")
+        # Tell the user we are their selection
+        print(f"Editing item '{settingSelected}'")
 
     else: # If the users input does not correspond to a listed setting
         print("Input out of range, exiting...") # Tell the user we are exiting
@@ -1037,7 +1042,7 @@ def editSettings() -> None:
         if type(selection) in settingsPossible[settingSelected]:
             # Write the setting into the settings file
             writeJson("settings.json", {settingSelected: selection}, dataDir)
-            print(f"Set \"{settingSelected}\" to \"{selection}\"")
+            print(f"Set '{settingSelected}' to '{selection}'")
         else:
             # Complain about the bad input
             print("Input can't be casted to a supported type, exiting...")
@@ -1073,7 +1078,7 @@ def editSettings() -> None:
                 # Write it into our settings json file
                 writeJson("settings.json", {settingSelected: valueSelected}, dataDir)
                 # And tell the user we have done so
-                print(f"Set \"{settingSelected}\" to \"{valueSelected}\"")
+                print(f"Set '{settingSelected}' to '{valueSelected}'")
 
             else: # If the users input does not correspond to a listed value
                 # Tell the user we are exiting
@@ -1093,7 +1098,9 @@ def editSettings() -> None:
         end()
 
 def editLayer(layer = "default.json"):
-    """Shell for editing a layer file (default by default)"""
+    """
+    Shell for editing a layer file (default by default)
+    """
     # Get a dict of keybindings in the layer file
     LayerDict = readJson(layer, layerDir)
 
@@ -1109,7 +1116,7 @@ def editLayer(layer = "default.json"):
         if keybindingsList[bindingIndex][0] == "leds":
             print(f"-{bindingIndex + 1}: Edit LEDs")
         elif keybindingsList[bindingIndex][0] == "vars":
-            print(f"-{bindingIndex + 1}: Edit layer varables")
+            print(f"-{bindingIndex + 1}: Edit layer variables")
         else:
             # Print an entry for every binding, as well as a number associated
             # with it and it's current value
@@ -1124,7 +1131,7 @@ def editLayer(layer = "default.json"):
             # Store the selected bindings's key
             bindingSelected = keybindingsList[int(selection) - 1][0]
             # Tell the user we are editing their selection
-            print(f"Editing item \"{bindingSelected}\"")
+            print(f"Editing item '{bindingSelected}'")
 
         # If the users input does not correspond to a listed binding
         else:
@@ -1162,7 +1169,7 @@ def editLayer(layer = "default.json"):
             varsList += [var, ] # Add the pair to our list of layer var pairs
 
         # Ask the user to choose which var they wish to edit
-        print("Choose what varable you would like to edit.")
+        print("Choose what variable you would like to edit.")
         # For the index number of every var pair in our list of var pairs
         for varIndex in range(0, len(varsList)):
             print(f"-{varIndex + 1}: {varsList[varIndex][0]}   [{varsList[varIndex][1]}]")
@@ -1178,7 +1185,7 @@ def editLayer(layer = "default.json"):
                 # Store the selected var's key
                 varSelected = varsList[int(selection) - 1][0]
                 # Tell the user we are editing their selection
-                print(f"Editing item \"{varSelected}\"")
+                print(f"Editing item '{varSelected}'")
 
             # If the users input does not correspond to a listed var
             else:
@@ -1193,9 +1200,9 @@ def editLayer(layer = "default.json"):
         # Ask the user to choose what they want to do with their selected var
         print(f"Choose am action to take on {varSelected}.")
         # Prompt the user with a few possible actions
-        print("-1: Delete varable.")
-        print("-2: Edit varable name.")
-        print("-3: Edit varable value.")
+        print("-1: Delete variable.")
+        print("-2: Edit variable name.")
+        print("-3: Edit variable value.")
         print("-4: Cancel.")
 
         # Take the users input as to what they want to do with their selected var
@@ -1297,23 +1304,23 @@ def newDevice(eventPath: str = "/dev/input/") -> None:
         # If the users chosen layer does not exist
         createLayer(initialLayer) # Create it
 
-    eventFile = detectKeyboard(eventPath) # Prompt the user for a device
+    # Prompt the user for a device
+    eventFile = detectKeyboard(eventPath)
     # Get the devices filename from its filepath
     eventFile = os.path.basename(eventFile)
 
     # Ensure the stdin is empty
     input("\nA udev rule will be made next, sudo may prompt you for a password. Press enter to continue...")
-    # Make an udev rule matching the device file
-    selectedPropertiesList = [f"KERNEL==\"{eventFile}\""]
     # Construct the device data dict
     deviceJsonDict = {
         "initial_layer": initialLayer,
         "event": eventFile,
-        "udev_tests": selectedPropertiesList,
+        # Make an udev rule matching the device file
+        "udev_tests": [f"KERNEL==\"{eventFile}\""]
     }
     # Write device data into a json file
     writeJson(eventFile + ".json", deviceJsonDict, deviceDir)
-    # Create a mcro device and make a udev rule,
+    # Create a macro device and make a udev rule,
     # the user will be prompted for sudo
     macroDevice(eventFile + ".json").addUdevRule()
     end()
@@ -1328,11 +1335,11 @@ def removeDevice(name: str = None) -> None:
         deviceList = os.listdir(deviceDir)
         # For all device files
         for deviceIndex in range(0, len(deviceList)):
-            # Print thier names
+            # Print their names
             print(f"-{deviceIndex + 1}: {deviceList[deviceIndex]}")
 
         # Prompt the user for a selection
-        selection = int(input("Please make your selection : "))
+        selection = int(input("Please make your selection: "))
         # Set name based on the users selection
         name = deviceList[selection - 1]
 
@@ -1354,7 +1361,9 @@ def removeDevice(name: str = None) -> None:
 # Setup
 
 def firstUses() -> None:
-    """Setup to be run when a user first runs keebie"""
+    """
+    Setup to be run when a user first runs keebie
+    """
     # Copy template configuration files to user
     src = os.path.join(installDataDir, "data")
     copytree(src, dataDir, dirs_exist_ok=True)
@@ -1365,10 +1374,11 @@ def firstUses() -> None:
 # Inter-process communication
 
 def savePid() -> None:
-    """Save our PID into the PID file.
-    Raise FileExistsError if the PID file already exists."""
+    """
+    Save our PID into the PID file.
+    Raise FileExistsError if the PID file already exists.
+    """
     dprint("Saving PID to", pidPath)
-
     if os.path.exists(pidPath):
         dprint("PID already recorded")
         raise FileExistsError("PID already recorded")
@@ -1381,8 +1391,10 @@ def savePid() -> None:
         savedPid = True
 
 def removePid() -> None:
-    """Remove the PID file if it exists."""
-    dprint("Removing PID file " + pidPath)
+    """
+    Remove the PID file if it exists.
+    """
+    dprint("Removing PID file", pidPath)
     # If the PID file exists
     if os.path.exists(pidPath):
         # Remove it
@@ -1394,17 +1406,20 @@ def removePid() -> None:
         print("PID was never stored?")
 
 def getPid() -> int:
-    """Return the PID stored in the PID file.
-    Raise FileNotFoundError if the file does not exist."""
+    """
+    Return the PID stored in the PID file.
+    Raise FileNotFoundError if the file does not exist.
+    """
     if os.path.exists(pidPath):
         with open(pidPath, "rt") as pidFile:
             # And return it's contents as an int
             return int(pidFile.read())
-    dprint("PID file dosn't exist")
-    raise FileNotFoundError("PID file dosn't exist")
+    dprint("PID file doesn't exist")
+    raise FileNotFoundError("PID file doesn't exist")
 
 def checkPid() -> None:
-    """Try to get the PID and check if it is valid.
+    """
+    Try to get the PID and check if it is valid.
     Raise FileNotFoundError if the PID file does not exist.
     Raise ProcessLookupError and remove the PID file if no process has the PID.
     """
@@ -1422,7 +1437,9 @@ def checkPid() -> None:
         raise ProcessLookupError("PID invalid")
 
 def sendStop() -> None:
-    """If a valid PID is found in the PID file send SIGINT to the process."""
+    """
+    If a valid PID is found in the PID file send SIGINT to the process.
+    """
     try:
         dprint("Sending stop")
         # Check if the PID file point's to a valid process
@@ -1688,7 +1705,7 @@ def main():
             try:
                 # Check if it is valid, this will raise an error if it isn't
                 checkPid()
-                print("Another instance of keebie is already processing macros, exiting...")
+                print("Another instance of keebie is already running, exiting...")
                 end()
 
             # If the PID file points to an invalid PID...
