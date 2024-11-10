@@ -11,7 +11,7 @@ import argparse
 import time
 import subprocess
 from shutil import copytree, copyfile
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 JSON = Dict[str, Any]
 
 # Utilities
@@ -31,6 +31,17 @@ def qprint(*args, **kwargs) -> None:
     """Print less then necessary info (or don't)"""
     if not quietMode:
         print(*args, **kwargs)
+
+# Global Constants
+
+# A dict of script types and their interpreters with a trailing space
+scriptTypes = {
+    "script:": "bash ",
+    "py:": "python ",
+    "py2:": "python2 ",
+    "py3:": "python3 ",
+    "exec:": "",
+}
 
 # Global vars
 
@@ -322,6 +333,28 @@ class macroDevice():
     A class for managing devices.
     """
 
+    @property
+    def currentLayer(self) -> str:
+        '''
+        Name of the Layer this device is currently on
+        '''
+        return self._currentLayer
+
+    @currentLayer.setter
+    def currentLayer(self, val: str) -> None:
+        '''
+        Set the Name of the Layer this device is currently on
+        '''
+        self._currentLayer = val
+        self._currentLayerJson: Optional[JSON] = None
+        return
+
+    @property
+    def currentLayerJson(self) -> JSON:
+        if self._currentLayerJson is None:
+            self._currentLayerJson = readJson(self.currentLayer)
+        return self._currentLayerJson
+
     def __init__(self, deviceJson) -> None:
         # Name of device for debugging
         self.name = deviceJson.split(".json")[0]
@@ -337,8 +370,7 @@ class macroDevice():
         self.udevTests = jsonData["udev_tests"]
         # A keyLedger to track input events on his devicet
         self.ledger = keyLedger(self.name)
-        # will be an InputEvent instance
-        self.device = None
+        self.device: Optional[InputDevice] = None
 
     def addUdevRule(self, priority = 85) -> None:
         """Generate a udev rule for this device."""
@@ -390,18 +422,20 @@ class macroDevice():
         self.device.close() # Close the device
 
     def read(self, process=True) -> bool:
-        """Read all queued events (if any), update the ledger,
+        """
+        Read all queued events (if any), update the ledger,
         and process the keycodes (or don't).
-        Returns a bool if we flushed any histories this time"""
+        Returns a bool if we flushed any histories this time
+        """
 
-        # A bool to store if we flushed any histories this update
+        # flushed any histories this time?
         flushedHistories = False
-
         try:
             # Update our ledger with any available events
             flushedHistories = self.ledger.update(self.device.read())
 
-        except BlockingIOError: # If no events are available
+        except BlockingIOError:
+            # no events are available
             # Update our ledger so things get flushed if need be
             flushedHistories = self.ledger.update((None, ))
 
@@ -414,13 +448,13 @@ class macroDevice():
     def setLeds(self) -> None:
         """Set device leds based on the current layer."""
         # If the current layer specifies LEDs
-        if "leds" in readJson(self.currentLayer):
+        if "leds" in self.currentLayerJson:
             # Check if the device had LEDs
             if 17 in self.device.capabilities().keys():
                 # Get a list of LEDs the device has
                 leds = self.device.capabilities()[17]
                 # Get a list of LEDs to turn on
-                onLeds = readJson(self.currentLayer)["leds"]
+                onLeds = self.currentLayerJson["leds"]
                 dprint(f"device {self.name} setting leds {onLeds} on")
                 for led in leds: # For all LEDs on the board
                     if led in onLeds: # If the LED is to be set on
@@ -432,95 +466,87 @@ class macroDevice():
                 dprint("Device has no LEDs")
 
         else:
-            print(f"Layer {readJson(self.currentLayer)} has no leds property, writing empty")
+            print(f"Layer {self.currentLayerJson} has no leds property, writing empty")
             # Write an empty list for LEDs into the current layer
             writeJson(self.currentLayer, {"leds": []})
+            self._currentLayerJson = None
             # For all LEDs on the board
             for led in self.device.capabilities()[17]:
                 self.device.set_led(led, 0) # Set it off
 
     def processLedger(self) -> None:
         """Process any flushed histories from our ledger."""
-        keycode = self.ledger.popHistory() # Pop a history
+        keycode = self.ledger.popHistory()
         # As long as the history we have isn't blank
-        while keycode != "":
+        while keycode:
             self.processKeycode(keycode)
             # And grab the next one (blank if none are available)
             keycode = self.ledger.popHistory()
 
     def processKeycode(self, keycode) -> None:
-        """Parse a command in our current layer bound to the passed keycode (ledger history)."""
+        """
+        Parse a command in our current layer bound to the passed keycode
+        (ledger history).
+        """
         # Print debug info
         dprint(f"{self.name} is processing {keycode} in layer {self.currentLayer}")
 
-        # If the keycode is in our current layer's json file
-        if keycode in readJson(self.currentLayer):
-            # Get the instructions associated with the keycode
-            value = readJson(self.currentLayer)[keycode]
-            # Parse any varables that may appear in the command
-            value = parseVars(value, self.currentLayer)
+        value = self.currentLayerJson.get(keycode, None)
+        if value is None:
+            # the keycode is NOT in our current layer's json
+            return
 
-            if value.startswith("layer:"): # If value is a layerswitch command
-                jfile = value.split(':')[-1] + ".json"
-                jpath = os.path.join(layerDir, jfile)
-                if not os.path.exists(jpath):
-                    # the layer has no json file
-                    createLayer(jfile) # Create one
-                    print("Created layer file: " + jfile)
-                    # Switch to our new layer file
-                    self.currentLayer = jfile
-                    print("Switched to layer file: " + jfile)
+        # Parse any varables that may appear in the command
+        value = parseVars(value, self.currentLayerJson)
+        if value.startswith("layer:"):
+            # this is a layer switch command
+            jfile = value.split(':')[-1] + ".json"
+            jpath = os.path.join(layerDir, jfile)
+            if not os.path.exists(jpath):
+                createLayer(jfile)
+                print("Created layer file:", jfile)
+            self.currentLayer = jfile
 
-                else:
-                    # Set self.current layer to the target layer
-                    self.currentLayer = jfile
-                    print("Switched to layer file: " + jfile)
+            # Set LEDs based on the new current layer
+            self.setLeds()
+            return
+        #
+        # sanitize value according to
+        # settings forceBackground and backgroundInversion
+        #
+        value = value.strip()
+        if settings["forceBackground"] and not value.endswith("&"):
+            value += " &"
 
-                # Set LEDs based on the new current layer
-                self.setLeds()
+        # If value is not set to run in the background and
+        # our settings say to invert background mode
+        if settings["backgroundInversion"] and not value.endswith("&"):
+            value += " &" # Force running in the background
 
-            else:
-                if value.strip().endswith("&") == False and settings["forceBackground"]:
-                    # If value is not set in run in the background and our
-                    # settings say to force running in the background
-                    value += " &" # Force running in the background
+        # Else if value is set to run in the background and our settings
+        # say to invert background mode
+        elif value.endswith("&") and settings["backgroundInversion"]:
+            # Remove all spaces and &s from the end of value, there
+            # might be a better way but this is the best I've got
+            value = value.rstrip(" &")
+        #
+        # Does the value start with the recognized script type?
+        #
+        for scriptType, prefix in scriptTypes.items():
+            if value.startswith(scriptType):
+                scriptPath = os.path.join(scriptDir, value.split(':')[-1])
+                value = prefix + scriptPath
+                break
+        #
+        # If this is not a script (i.e. it is a shell command)
+        #
+        else:
+            # Notify the user of the command
+            print(keycode + ": " + value)
 
-                # If value is not set to run in the background and our settings
-                # say to invert background mode
-                if value.strip().endswith("&") == False and settings["backgroundInversion"]:
-                    value += " &" # Force running in the background
-
-                # Else if value is set to run in the background and our settings
-                # say to invert background mode
-                elif value.strip().endswith("&") and settings["backgroundInversion"]:
-                    # Remove all spaces and &s from the end of value, there
-                    # might be a better way but this is the best I've got
-                    value = value.rstrip(" &")
-
-                # A dict of script types and thier interpreters with a trailing space
-                scriptTypes = {
-                    "script": "bash ",
-                    "py": "python ",
-                    "py2": "python2 ",
-                    "py3": "python3 ",
-                    "exec": "",
-                }
-                # For recognized script types
-                for scriptType in scriptTypes.keys():
-                    # Check if value is one of said script types
-                    if value.startswith(scriptType + ":"):
-                        # Notify the user we are running a script
-                        print(f"Executing {scriptTypes[scriptType]}script {value.split(':')[-1]}")
-                        # Set value to executable format
-                        value = scriptTypes[scriptType] + scriptDir + value.split(':')[-1]
-                        break
-
-                # If this is not a script (i.e. it is a shell command)
-                else:
-                    # Notify the user of the command
-                    print(keycode + ": " + value)
-
-                os.system(value) # Execute value
+        # Notify the user we are running a script
+        print("Executing", value)
+        os.system(value) # Execute value
 
     def clearLedger(self) -> None:
         """Clear this devices ledger."""
@@ -625,7 +651,8 @@ def clearDeviceLedgers() -> None:
         device.clearLedger()
 
 def readDevices(process=True) -> bool:
-    """Read and optionally process events from all the devices.
+    """
+    Read and optionally process the events from all the devices.
     Returns a bool if we flushed any histories this time.
     """
     flushedHistories = False
@@ -663,7 +690,7 @@ def readJson(filename: str, dir: str = layerDir) -> JSON:
         try:
             res = json.load(f)
         except json.decoder.JSONDecodeError as err:
-            print(f'Caught syntax error in f{path}: {err}')
+            print(f'Syntax error in {path}: {err}')
     dprint('readJson', path, '=>', res)
     return res
 
@@ -713,7 +740,8 @@ def popJson(filename, key, dir = layerDir) -> None:
 
 def createLayer(filename: str) -> None:
     """Creates a new layer with a given filename"""
-    # Copy the provided default layer file from installedDataDir to specified filename
+    # Copy the provided default layer file from installedDataDir to the
+    # specified filename
     src = os.path.join(installDataDir, "/data/layers/default.json")
     dst = os.path.join(layerDir, filename)
     copyfile(src, dst)
@@ -776,9 +804,11 @@ def getSettings() -> None:
 
 # Keypress processing
 
-def parseVars(commandStr, layer) -> str:
-    """Given a command from the layer json file replace vars with their values
-    and return the string"""
+def parseVars(commandStr, layerJson) -> str:
+    """
+    Given a command from the layer json file replace vars with their values
+    and return the string
+    """
     # Vars we will need in the loop
     returnStr = "" # The string to be retuned
     escaped = False # If we previously encountered an escape char
@@ -809,7 +839,7 @@ def parseVars(commandStr, layer) -> str:
             # If we are in a varable and char ends it parse the varables value,
             # add it to returnStr if valid, and reset inVar and varName
             try :
-                returnStr += readJson(layer)["vars"][varName]
+                returnStr += layerJson["vars"][varName]
             except KeyError :
                 print(f"unknown var {varName} in command {commandStr}, skiping command")
                 return ""
