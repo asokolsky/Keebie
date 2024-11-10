@@ -49,15 +49,12 @@ scriptTypes = {
 installDataDir = "/usr/share/keebie/"
 # Path where user configuration files should be stored
 dataDir = os.path.join(os.path.expanduser("~"), ".config", "keebie")
-#dprint(dataDir)
-
 # Cache the full path to the /layers directory
 layerDir = os.path.join(dataDir, "layers")
 # Cache the full path to the /devices directory
 deviceDir = os.path.join(dataDir, "devices")
 # Cache the full path to the /scripts directory
 scriptDir = os.path.join(dataDir, "scripts")
-
 # The path to store the PID of a running looping instance of keebie
 pidPath = os.path.join(dataDir, "running.pid")
 
@@ -66,11 +63,11 @@ pidPath = os.path.join(dataDir, "running.pid")
 # A bool to track if devices have beed grabbed
 devicesAreGrabbed = False
 
-# A bool to store if this process has writen to the PID file
+# This process has written to the PID file
 savedPid = False
-# A bool to store if the process has sent a pause signal to a running keebie loop
+# The process has sent a pause signal to a running keebie loop
 paused = False
-# A bool to store if this process has been signaled to pause by another instance
+# This process has been signaled to pause by another instance
 havePaused = False
 
 def signal_handler(signal, frame) -> None:
@@ -105,8 +102,10 @@ def end() -> None:
 # Key Ledger
 
 class keyLedger():
-    """A class for tracking which keys are pressed,
-    as well how how long and how recently."""
+    """
+    A class for tracking which keys are pressed,
+    as well how how long and how recently.
+    """
 
     def __init__(self, name: str ="unnamed ledger"):
         # Name of the ledger for debug prints
@@ -215,7 +214,6 @@ class keyLedger():
             # A float (or None) for the timestamp of the event,
             # will be passed to other methods
             timestamp: float|None = None
-            # If the event is not None
             if event is not None:
                 # Set timestamp to the event's timestamp
                 timestamp = event.timestamp()
@@ -226,9 +224,7 @@ class keyLedger():
                     event = categorize(event)
                     keycode = event.keycode # Store the event's keycode
                     keystate = event.keystate # Store the event's key state
-
                     # dprint(timestamp)
-
                     # If the keycode is a list of keycodes (it can happen)
                     if type(keycode) == list:
                         keycode = keycode[0] # Select the first one
@@ -600,9 +596,9 @@ def setupMacroDevices() -> None:
 
 def grabMacroDevices() -> None:
     """Grab all devices with macroDevices."""
-    global devicesAreGrabbed # Globallize devicesAreGrabbed
-    devicesAreGrabbed = True # And set it true
-    qprint('macroDeviceList:', macroDeviceList)
+    global devicesAreGrabbed
+    devicesAreGrabbed = True
+    qprint('grabMacroDevices:', macroDeviceList)
     for device in macroDeviceList:
         device.grabDevice()
 
@@ -610,6 +606,7 @@ def ungrabMacroDevices() -> None:
     """Ungrab all devices with macroDevices."""
     global devicesAreGrabbed
     devicesAreGrabbed = False
+    qprint('ungrabMacroDevices:', macroDeviceList)
     for device in macroDeviceList:
         device.ungrabDevice()
 
@@ -617,20 +614,6 @@ def closeDevices() -> None:
     """Close all the devices."""
     for device in macroDeviceList:
         device.close()
-
-def mergeDeviceLedgers() -> keyLedger:
-    """Merge the key ledgers of all macroDevices into one and return it."""
-    # Create an empty key ledger
-    returnLedger = keyLedger()
-    for device in macroDeviceList:
-        # Add the devices key lists to the return ledger
-        returnLedger.newKeys += device.ledger.newKeys
-        returnLedger.lostKeys += device.ledger.lostKeys
-        returnLedger.downKeys += device.ledger.downKeys
-        # Add the devices histories to the return ledger
-        returnLedger.histories += device.ledger.histories
-    # Return the ledger we built
-    return returnLedger
 
 def clearDeviceLedgers() -> None:
     """Clear all device ledgers."""
