@@ -1,12 +1,12 @@
-# Installation, Configuration and Use on Ubuntu/Mint
+# Keebie Installation, Configuration and Use on Ubuntu/Mint
 
 Keebie allows you to map keys to actions, with the keys being keyboard-specific.
 Keebie is written in python3 and heavily relies on
 [python-evdev](https://python-evdev.readthedocs.io/en/latest/).
 
-Warning:
+Note:
 
-* you will need to setup custom permissions on your keyboard device;
+* you may need to setup custom permissions on your keyboard device;
 * keebie probably does NOT work with wayland.
 
 ## Installation
@@ -21,7 +21,7 @@ Install the prerequisites:
 sudo apt install python3 python3-evdev inotify-tools
 ```
 
-Then run `make install` while in the repo directory. This creates
+Run `make install` while in the repo directory. This creates
 `/usr/share/keebie`.
 
 To verify installation:
@@ -58,12 +58,9 @@ options:
 
 ## Configuration
 
-```
-alex@duo > keebie --install
-Welcome to Keebie
-You are running keebie without user configuration files installed
-Configuration files copied from /usr/share/keebie//data/ to /home/alex/.config/keebie/
-Configuration files copied from /usr/share/keebie//data/ to /home/alex/.config/keebie/
+For every Keebie user:
+```sh
+keebie --install
 ```
 
 This creates:
@@ -86,9 +83,9 @@ This creates:
   "leds": [],
   "vars": {
     "greeting": "Hello World"
-	},
+  },
   "KEY_SPACE": "echo '%greeting%!'",
-	"KEY_ESC": "layer:default"
+  "KEY_ESC": "layer:default"
  }
 ```
 * empty directory `.config/keebie/scripts/`
@@ -112,6 +109,25 @@ To detect the keyboard:
 keebie --detect
 ```
 When I press a key on my small keyboard I get `/dev/input//event4`.
+
+Alternatively, identify the USB device for your USB keyboard:
+
+```
+> lsusb
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 001 Device 002: ID c0f4:08f5 Usb KeyBoard Usb KeyBoard
+Bus 001 Device 003: ID 046d:c52b Logitech, Inc. Unifying Receiver
+Bus 001 Device 004: ID 04f2:b604 Chicony Electronics Co., Ltd Integrated Camera (1280x720@30)
+Bus 001 Device 005: ID 06cb:009a Synaptics, Inc. Metallica MIS Touch Fingerprint Reader
+Bus 001 Device 006: ID 8087:0aaa Intel Corp. Bluetooth 9460/9560 Jefferson Peak (JfP)
+Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+```
+My keyboard is `Bus 001 Device 002: ID c0f4:08f5 Usb KeyBoard Usb KeyBoard`.
+Then:
+```sh
+sudo python3 -m evdev.evtest
+```
+This will give you an idea of which event device is related to your keyboard.
 
 #### Add a Keyboard
 
@@ -151,7 +167,7 @@ and `~/.config/keebie/layers/numpad`:
     "greeting": "Hello World"
   },
   "KEY_SPACE": "echo '%greeting%!'",
-	"KEY_ESC": "layer:default"
+  "KEY_ESC": "layer:default"
  }
 ```
 and `/etc/udev/rules.d/85-keebie-event4.rules`:
@@ -164,6 +180,30 @@ UBSYSTEM=="input", KERNEL=="event4", MODE="0666", ENV{SYSTEMD_WANTS}="keebie.ser
 To remove the keyboard:
 ```sh
 keebie --remove
+```
+
+### Device Permissions
+
+When you run keebie as a user, you can get an error:
+```
+PermissionError: [Errno 13] Permission denied: '/dev/input/event19'
+```
+In this case you may need to either:
+
+* add user to the group `input` - preferred way of solving this problem,
+requires reboot;
+* or change permissions on the device - this change will only be effective for
+the duration of the current session.
+
+To add user to the group `input` and reboot:
+```sh
+sudo adduser $USER input
+sudo reboot
+```
+To change permissions on the device for the user and group:
+```sh
+sudo chmod u+r /dev/input/eventX
+sudo chmod g+r /dev/input/eventX
 ```
 
 ### Keebie Layer - Key Mappings
@@ -241,6 +281,59 @@ by pressing `KEY_BACKSPACE`;
 * `test` - more tasks, get there by pressing `KEY_KPASTERISK`, get back to
 `numpad` by pressing `KEY_BACKSPACE`;
 
+```
+python3 keebie.py --layers
+Welcome to Keebie
+Available Layers:
+
+test.json{
+    "leds": [],
+    "vars": {
+        "greeting": "test"
+    },
+    "KEY_KPSLASH": "layer:obs",
+    "KEY_KPASTERISK": "layer:test",
+    "KEY_BACKSPACE": "layer:numpad",
+    "KEY_KP0": "echo '%greeting%!'",
+    "KEY_KP1": "echo '%greeting%!'"
+}
+
+default.json{
+        "leds": [],
+        "vars": {
+                "greeting": "Hello World"
+        },
+        "KEY_SPACE": "echo '%greeting%!'",
+        "KEY_ESC": "layer:default"
+ }
+
+numpad.json{
+    "leds": [],
+    "vars": {
+        "greeting": "numpad"
+    },
+    "KEY_KPSLASH": "layer:obs",
+    "KEY_KPASTERISK": "layer:test",
+    "KEY_BACKSPACE": "layer:numpad",
+    "KEY_KPMINUS": "/usr/bin/cvlc  /usr/share/sounds/freedesktop/stereo/audio-channel-front-left.oga vlc://quit",
+    "KEY_KPPLUS": "/usr/bin/cvlc  /usr/share/sounds/freedesktop/stereo/audio-channel-front-right.oga vlc://quit",
+    "KEY_KP0": "echo '%greeting%!'",
+    "KEY_KP1": "echo '%greeting%!'"
+}
+
+obs.json{
+    "leds": [],
+    "vars": {
+        "greeting": "obs"
+    },
+    "KEY_KPSLASH": "layer:obs",
+    "KEY_KPASTERISK": "layer:test",
+    "KEY_BACKSPACE": "layer:numpad",
+    "KEY_KP0": "echo '%greeting%!'",
+    "KEY_KP1": "echo '%greeting%!'",
+    "KEY_BACKSPACE": "layer:numpad"
+ }
+```
 
 ## TODO
 
