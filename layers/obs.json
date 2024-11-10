@@ -1,13 +1,11 @@
 {
     "leds": [],
     "vars": {
-	"greeting": "obs"
+	"OBSWS": "obsws://127.0.0.1:4455/secret"
     },
     "KEY_KPSLASH": "layer:obs",
     "KEY_KPASTERISK": "layer:test",
     "KEY_BACKSPACE": "layer:numpad",
-    "KEY_KP0": "echo '%greeting%!'",
-    "KEY_KP1": "echo '%greeting%!'",
-    "KEY_BACKSPACE": "layer:numpad"
- }
- 
+    "KEY_KP0": "/usr/local/bin/obs-cmd -w %OBSWS% scene switch 'Scene'",
+    "KEY_KPENTER": "/usr/local/bin/obs-cmd -w %OBSWS% scene switch 'Scene 2'"
+}
