@@ -2,7 +2,6 @@
 #
 # Keebie by Robin Universe & Friends
 #
-from evdev import InputDevice, categorize, ecodes
 import sys
 import signal
 import os
@@ -14,6 +13,8 @@ from shutil import copytree, copyfile
 from typing import Any, Dict, List, Optional
 JSON = Dict[str, Any]
 
+from evdev import InputDevice, categorize, ecodes
+
 # Utilities
 
 # Whether we should print debug information
@@ -22,15 +23,18 @@ printDebugs = False
 # Hide some output not strictly needed for interactivity
 quietMode = False
 
+
 def dprint(*args, **kwargs) -> None:
     """Print debug info (or don't)"""
     if printDebugs:
         print(*args, **kwargs)
 
+
 def qprint(*args, **kwargs) -> None:
     """Print less then necessary info (or don't)"""
     if not quietMode:
         print(*args, **kwargs)
+
 
 # Global Constants
 
@@ -41,6 +45,17 @@ scriptTypes = {
     "py2:": "python2 ",
     "py3:": "python3 ",
     "exec:": "",
+}
+
+# A dict of lists of valid values for each setting (or if first element is type
+# then list of acceptable types in descending priority)
+settingsPossible: Dict[str, List[Any]] = {
+    "multiKeyMode": ["combination", "sequence"],
+    "forceBackground": [True, False],
+    "backgroundInversion": [True, False],
+    "loopDelay": [type, float, int],
+    "holdThreshold": [type, float, int],
+    "flushTimeout": [type, float, int],
 }
 
 # Global vars
@@ -57,6 +72,15 @@ deviceDir = os.path.join(dataDir, "devices")
 scriptDir = os.path.join(dataDir, "scripts")
 # The path to store the PID of a running looping instance of keebie
 pidPath = os.path.join(dataDir, "running.pid")
+# A dict of settings to be used across the script
+settings = {
+    "multiKeyMode": "combination",
+    "forceBackground": False,
+    "backgroundInversion": False,
+    "loopDelay": 0.0167,
+    "holdThreshold": 1,
+    "flushTimeout": 0.5,
+}
 
 # Signal handling
 
@@ -69,8 +93,10 @@ paused = False
 # This process has been signaled to pause by another instance
 havePaused = False
 
+
 def signal_handler(signal, frame) -> None:
     end()
+
 
 def end() -> None:
     """
@@ -106,15 +132,15 @@ class keyLedger():
     as well how how long and how recently.
     """
 
-    def __init__(self, name: str ="unnamed ledger"):
+    def __init__(self, name: str = "unnamed ledger"):
         # Name of the ledger for debug prints
         self.name = name
 
         # An int representing the state of the ledger;
-        # 0, 1, 2, 3 : rising, falling, holding, stale
+        # 0, 1, 2, 3: rising, falling, holding, stale
         self.state = 3
         # The timestamp of the last state change
-        self.stateChangeStamp = time.time()
+        self.stateChangeStamp: float = time.time()
         # Are we peaking (adding new keys; rising or holding)
         self.peaking = False
 
@@ -126,7 +152,7 @@ class keyLedger():
         # List of keys being held down
         self.downKeys: List[str] = []
 
-    def stateChange(self, newState, timestamp = None) -> None:
+    def stateChange(self, newState, timestamp=None) -> None:
         """
         Change the ledger state and record the timestamp.
         """
@@ -139,7 +165,7 @@ class keyLedger():
             self.stateChangeStamp = timestamp
             # dprint(f"{self.name}) new state {newState} at {timestamp}")
 
-    def stateDuration(self, timestamp = None) -> float:
+    def stateDuration(self, timestamp=None) -> float:
         """
         Return a float of how long our current state has lasted.
         """
@@ -148,19 +174,22 @@ class keyLedger():
         # Return the time since state change
         return timestamp - self.stateChangeStamp
 
-    def addHistoryEntry(self, entry = None, held = None,
-                        timestamp = None) -> None:
+    def addHistoryEntry(self, entry=None, held=None,
+                        timestamp=None) -> None:
         """
         Add an entry to our history.
         """
-        if entry is None: # If no entry was specified
+        if entry is None:   # If no entry was specified
             # Use the currently down keys
             entry = '+'.join(self.downKeys)
         # If the key was held was not specified
         if held is None:
             # Set held True if the length of last state surpassed
             # holdThreshold setting
-            held = self.stateDuration((timestamp)) > settings["holdThreshold"]
+            holdThreshold = settings["holdThreshold"]
+            if isinstance(holdThreshold, float) or \
+                    isinstance(holdThreshold, int):
+                held = self.stateDuration(timestamp) > holdThreshold
         # If held is True note that into the entry
         entry += "+HELD" * held
         # If the current history is not empty
@@ -205,13 +234,13 @@ class keyLedger():
         # A bool to store if we flushed any histories this update
         flushedHistory = False
 
-        for event in events: # For each passed event
-            self.newKeys = [] # They are no longer new
-            self.lostKeys = [] # What once was lost...
+        for event in events:        # For each passed event
+            self.newKeys = []       # They are no longer new
+            self.lostKeys = []      # What once was lost...
 
             # A float (or None) for the timestamp of the event,
             # will be passed to other methods
-            timestamp: float|None = None
+            timestamp: float | None = None
             if event is not None:
                 # Set timestamp to the event's timestamp
                 timestamp = event.timestamp()
@@ -220,34 +249,35 @@ class keyLedger():
                 if event.type == ecodes.EV_KEY:
                     # Convert our EV_KEY input event into a KeyEvent
                     event = categorize(event)
-                    keycode = event.keycode # Store the event's keycode
-                    keystate = event.keystate # Store the event's key state
+                    keycode = event.keycode     # Store the event's keycode
+                    keystate = event.keystate   # Store the event's key state
                     # dprint(timestamp)
                     # If the keycode is a list of keycodes (it can happen)
-                    if type(keycode) == list:
-                        keycode = keycode[0] # Select the first one
+                    if isinstance(keycode, list):
+                        keycode = keycode[0]     # Select the first one
                     # If the key is down
                     if keystate in (event.key_down, event.key_hold):
                         # If the key is not known to be down
-                        if not keycode in self.downKeys:
+                        if keycode not in self.downKeys:
                             # Add the key to our new keys
                             self.newKeys.append(keycode)
 
-                    elif keystate == event.key_up: # If the key was released
+                    elif keystate == event.key_up:  # If the key was released
                         # If the key was in our down keys
                         if keycode in self.downKeys:
                             # Add the key to our lost keys
                             self.lostKeys.append(keycode)
 
-                        else: # If the key was not known to be down
+                        else:   # the key was not known to be down
                             # Print a warning
-                            print(f"{self.name}) Untracked key {keycode} released.")
+                            print(self.name, "Untracked key", keycode,
+                                  "released.")
 
             # if we have new keys (rising edge)
             if self.newKeys:
                 # dprint()
-                dprint(f"{self.name}) >{'>' * len(self.downKeys)} " \
-                    f"rising with new keys {'+'.join(self.newKeys)}")
+                dprint(f"{self.name}) >{'>' * len(self.downKeys)} "
+                       f"rising with new keys {'+'.join(self.newKeys)}")
                 # Add our new keys to our down keys
                 self.downKeys += self.newKeys
                 # Store that we are peaking
@@ -258,26 +288,27 @@ class keyLedger():
                     # Sort our down keys to negate the order they were added in
                     self.downKeys.sort()
 
-                self.stateChange(0, timestamp) # Change to state 0
+                self.stateChange(0, timestamp)  # Change to state 0
 
-            elif self.lostKeys: # If we lost keys (falling edge)
+            elif self.lostKeys:     # If we lost keys (falling edge)
                 # dprint()
-                dprint(f"{self.name}) {'<' * len(self.downKeys)}" \
-                    f" falling with lost keys {'+'.join(self.lostKeys)}")
+                dprint(f"{self.name}) {'<' * len(self.downKeys)}"
+                       f" falling with lost keys {'+'.join(self.lostKeys)}")
 
                 if self.peaking:  # If we were peaking
                     # Add current down keys (peak keys) to our history
                     self.addHistoryEntry(timestamp=timestamp)
-                    self.peaking = False # We are no longer peaking
+                    self.peaking = False    # We are no longer peaking
 
                 # For each lost key
                 for keycode in self.lostKeys:
                     # Remove it from our down keys
                     self.downKeys.remove(keycode)
 
-                self.stateChange(1, timestamp) # Change to state 1
+                self.stateChange(1, timestamp)      # Change to state 1
 
-            # If no keys were added or lost, but we still have down keys (holding)
+            # If no keys were added or lost,
+            # but we still have down keys (holding)
             elif self.downKeys:
                 # dprint(end = f"{self.name}) {'-' * len(self.downKeys)}" \
                 #     f" holding with down keys {'+'.join(self.downKeys)}" \
@@ -287,21 +318,22 @@ class keyLedger():
                 # Change to state 2
                 self.stateChange(2, timestamp)
 
-            # If no keys were added or lost but we don't have any down keys (stale)
+            # If no keys were added or lost but
+            # we don't have any down keys (stale)
             else:
                 # dprint(end = f"{self.name}) stale since {str(self.stateChangeStamp)[7:17]}" \
                 #     f" for {str(self.stateDuration(timestamp))[0:10]}\r")
-                self.stateChange(3, timestamp) # Change to state 3
+                self.stateChange(3, timestamp)
                 # If the duration of this stale state has surpassed
                 # flushTimeout setting
-                if self.stateDuration(timestamp) > settings["flushTimeout"] and self.history:
+                if self.stateDuration(timestamp) > settings["flushTimeout"] \
+                        and self.history:
                     # dprint()
-                    self.flushHistory() # Flush our current history
-                    flushedHistory = True # Store that we did so
+                    self.flushHistory()     # Flush our current history
+                    flushedHistory = True   # Store that we did so
 
         # Return whether we flushed any histories
         return flushedHistory
-
 
 
 class macroDevice():
@@ -348,7 +380,7 @@ class macroDevice():
             self._currentLayerJson = readJson(self.currentLayer)
         return self._currentLayerJson
 
-    def addUdevRule(self, priority = 85) -> None:
+    def addUdevRule(self, priority=85) -> None:
         """
         Generate a udev rule for this device.
         """
@@ -363,14 +395,14 @@ class macroDevice():
         subprocess.run([
             "sudo",
             "sh",
-            os.join.path(installDataDir, "setup_tools/udevRule.sh"),
+            os.path.join(installDataDir, "setup_tools/udevRule.sh"),
             rule,
             path
-        ])
+        ], check=False)
         # Force udev to parse the new rule for the device
         subprocess.run(
             ["sudo", "udevadm", "test", "/sys/class/input/event3"],  # event3??
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def grabDevice(self) -> None:
         """Grab the device and set self.device to the grabbed device."""
@@ -409,6 +441,7 @@ class macroDevice():
         flushedHistories = False
         try:
             # Update our ledger with any available events
+            assert self.device is not None
             flushedHistories = self.ledger.update(self.device.read())
 
         except BlockingIOError:
@@ -418,12 +451,13 @@ class macroDevice():
 
         # If we are processing the ledger
         if process and flushedHistories:
-            self.processLedger() # Process the newly updated ledger
+            self.processLedger()    # Process the newly updated ledger
 
-        return flushedHistories # Return whether we flushed any histories
+        return flushedHistories     # Return whether we flushed any histories
 
     def setLeds(self) -> None:
         """Set device leds based on the current layer."""
+        assert self.device is not None
         # If the current layer specifies LEDs
         if "leds" in self.currentLayerJson:
             # Check if the device had LEDs
@@ -433,23 +467,24 @@ class macroDevice():
                 # Get a list of LEDs to turn on
                 onLeds = self.currentLayerJson["leds"]
                 dprint(f"device {self.name} setting leds {onLeds} on")
-                for led in leds: # For all LEDs on the board
-                    if led in onLeds: # If the LED is to be set on
-                        self.device.set_led(led, 1) # Set it on
+                for led in leds:        # For all LEDs on the board
+                    if led in onLeds:   # If the LED is to be set on
+                        self.device.set_led(led, 1)     # Set it on
                     else:
-                        self.device.set_led(led, 0) # Set it off
+                        self.device.set_led(led, 0)     # Set it off
 
             else:
                 dprint("Device has no LEDs")
 
         else:
-            print(f"Layer {self.currentLayerJson} has no leds property, writing empty")
+            print(f"Layer {self.currentLayerJson} has no leds property,"
+                  " writing empty")
             # Write an empty list for LEDs into the current layer
             writeJson(self.currentLayer, {"leds": []})
             self._currentLayerJson = None
             # For all LEDs on the board
             for led in self.device.capabilities()[17]:
-                self.device.set_led(led, 0) # Set it off
+                self.device.set_led(led, 0)     # Set it off
 
     def processLedger(self) -> None:
         """Process any flushed histories from our ledger."""
@@ -466,7 +501,7 @@ class macroDevice():
         (ledger history).
         """
         # Print debug info
-        dprint(f"{self.name} processing {keycode} in layer {self.currentLayer}")
+        dprint(self.name, "processing", keycode, "in layer", self.currentLayer)
 
         value = self.currentLayerJson.get(keycode, None)
         if value is None:
@@ -498,7 +533,7 @@ class macroDevice():
         # If value is not set to run in the background and
         # our settings say to invert background mode
         if settings["backgroundInversion"] and not value.endswith("&"):
-            value += " &" # Force running in the background
+            value += " &"   # Force running in the background
 
         # Else if value is set to run in the background and our settings
         # say to invert background mode
@@ -523,18 +558,18 @@ class macroDevice():
 
         # Notify the user we are running a script
         print("Executing", value)
-        os.system(value) # Execute value
+        os.system(value)        # Execute value
 
     def clearLedger(self) -> None:
         """Clear this devices ledger."""
+        assert self.device is not None
         try:
             # For all queued events
-            for event in self.device.read():
-                # Completely ignore them
-                pass
+            for _ in self.device.read():
+                pass    # Completely ignore them
         # If there arn't any queued events
         except BlockingIOError:
-            pass # Ignore that too
+            pass        # Ignore that too
         # Reset the ledger
         self.ledger = keyLedger(self.name)
 
@@ -549,19 +584,20 @@ standardLeds = {
     2: "scroll lock",
 }
 
+
 def setupMacroDevices() -> None:
     """Setup a macroDevice instance based on the contents of deviceDir."""
-    global macroDeviceList # Globalize macroDeviceList
     deviceJsonList = [
         # Get list of json files in deviceDir
         deviceJson for deviceJson in os.listdir(deviceDir)
         if os.path.splitext(deviceJson)[1] == ".json"
     ]
-    dprint(deviceJsonList) # Print debug info
+    dprint(deviceJsonList)
+    global macroDeviceList
     dprint([device.name for device in macroDeviceList])
-    for device in macroDeviceList: # For all preexisting devices
+    for device in macroDeviceList:      # For all preexisting devices
         if device.name + ".json" not in deviceJsonList:
-            # If a preexisting device is not in our list of devices
+            # If the preexisting device is not in our list of devices
             dprint(f"Device {device.name} has been removed")
             # Delete it (It should already be closed)
             macroDeviceList.remove(device)
@@ -588,6 +624,7 @@ def setupMacroDevices() -> None:
     # Add the list of the new devices to the list of preexisting ones
     macroDeviceList += newMacroDeviceList
 
+
 def grabMacroDevices() -> None:
     """Grab all devices with macroDevices."""
     global devicesAreGrabbed
@@ -595,6 +632,7 @@ def grabMacroDevices() -> None:
     qprint('grabMacroDevices:', macroDeviceList)
     for device in macroDeviceList:
         device.grabDevice()
+
 
 def ungrabMacroDevices() -> None:
     """Ungrab all devices with macroDevices."""
@@ -604,15 +642,18 @@ def ungrabMacroDevices() -> None:
     for device in macroDeviceList:
         device.ungrabDevice()
 
+
 def closeDevices() -> None:
     """Close all the devices."""
     for device in macroDeviceList:
         device.close()
 
+
 def clearDeviceLedgers() -> None:
     """Clear all device ledgers."""
     for device in macroDeviceList:
         device.clearLedger()
+
 
 def readDevices(process=True) -> bool:
     """
@@ -624,6 +665,7 @@ def readDevices(process=True) -> bool:
         if device.read(process):
             flushedHistories = True
     return flushedHistories
+
 
 def popDeviceHistories() -> List[str]:
     """Pop and return all histories of all devices as a list."""
@@ -641,22 +683,22 @@ def popDeviceHistories() -> List[str]:
     # Return the histories we got
     return histories
 
-
-
 # JSON
+
 
 def readJson(filename: str, dir: str = layerDir) -> JSON:
     """Reads the JSON file contents in the directory dir)"""
     path = os.path.join(dir, filename)
     dprint('readJson', path)
     res = {}
-    with open(path) as f:
+    with open(path, encoding='utf-8') as f:
         try:
             res = json.load(f)
         except json.decoder.JSONDecodeError as err:
             print(f'Syntax error in {path}: {err}')
     dprint('readJson', path, '=>', res)
     return res
+
 
 def writeJson(filename: str, data: JSON, dir: str = layerDir) -> None:
     """
@@ -666,7 +708,7 @@ def writeJson(filename: str, data: JSON, dir: str = layerDir) -> None:
     fpath = os.path.join(dir, filename)
     try:
         # Open an existing file
-        with open(fpath) as f:
+        with open(fpath, encoding='utf-8') as f:
             # And copy store its data
             prevData = json.load(f)
     # If the file doesn't exist
@@ -674,8 +716,9 @@ def writeJson(filename: str, data: JSON, dir: str = layerDir) -> None:
         prevData = {}
 
     prevData.update(data)
-    with open(fpath, 'w+') as outfile:
+    with open(fpath, 'w+', encoding='utf-8') as outfile:
         json.dump(prevData, outfile, indent=3)
+
 
 def popDictRecursive(dct, keyList) -> None:
     """
@@ -688,92 +731,73 @@ def popDictRecursive(dct, keyList) -> None:
     elif len(keyList) > 1:
         popDictRecursive(dct[keyList[0]], keyList[1:])
 
-def popJson(filename, key, dir = layerDir) -> None:
+
+def popJson(filename: str, key: str | List[str], dir: str = layerDir) -> None:
     """
     Removes the key key and it's value from a layer
     (or any json file named filename in the directory dir)
     """
     fpath = os.path.join(dir, filename)
-    with open(fpath) as f:
+    with open(fpath, encoding='utf-8') as f:
         prevData = json.load(f)
 
-    if type(key) == str:
+    if isinstance(key, str):
         prevData.pop(key)
-    elif type(key) == list:
+    elif isinstance(key, list):
         popDictRecursive(prevData, key)
 
-    with open(fpath, 'w+') as outfile:
+    with open(fpath, 'w+', encoding='utf-8') as outfile:
         json.dump(prevData, outfile, indent=3)
 
-
-
 # Layer file
+
 
 def createLayer(filename: str) -> None:
     """Creates a new layer with a given filename"""
     # Copy the provided default layer file from installedDataDir to the
     # specified filename
-    src = os.path.join(installDataDir, "/data/layers/default.json")
+    src = os.path.join(installDataDir, "data/layers/default.json")
     dst = os.path.join(layerDir, filename)
     copyfile(src, dst)
 
 
 # Settings file
 
-# A dict of settings to be used across the script
-settings = {
-    "multiKeyMode": "combination",
-    "forceBackground": False,
-    "backgroundInversion": False,
-	"loopDelay": 0.0167,
-    "holdThreshold": 1,
-    "flushTimeout": 0.5,
-}
-
-# A dict of lists of valid values for each setting (or if first element is type
-# then list of acceptable types in descending priority)
-settingsPossible = {
-    "multiKeyMode": ["combination", "sequence"],
-    "forceBackground": [True, False],
-    "backgroundInversion": [True, False],
-	"loopDelay": [type, float, int],
-    "holdThreshold": [type, float, int],
-    "flushTimeout": [type, float, int],
-}
-
 def getSettings() -> None:
-    """Reads the json file specified on the third line of config and sets the
-    values of settings based on it's contents"""
-    # Notify the user we are getting settings and tell them the file we are
-    # using to do so
+    """
+    Reads the json file specified on the third line of config and
+    sets the values of settings based on it's contents
+    """
+    # Notify the user
     dprint(f"Loading settings from {dataDir}/settings.json")
-    global settings
     # Get a dict of the keys and values in our settings file
     settingsFile = readJson("settings.json", dataDir)
     # For every setting we expect to be in our settings file
-    for setting in settings.keys():
+    for setting, val in settings.items():
         # If first element is type
-        if type == settingsPossible[setting][0]:
+        posVals = settingsPossible[setting]
+        if type == posVals[0]:
             # If the value in our settings file is valid
-            if type(settingsFile[setting]) in settingsPossible[setting]:
+            if type(settingsFile[setting]) in posVals:
                 dprint(f"Found valid typed value: '{type(settingsFile[setting])}' for setting: '{setting}'")
                 # Write it into our settings
                 settings[setting] = settingsFile[setting]
             else:
                 # Warn the user of invalid settings in the settings file
-                print(f"Value: '{settingsFile[setting]}' for setting: '{setting}' is of invalid type, defaulting to {settings[setting]}")
+                print(f"Value: '{settingsFile[setting]}' for setting: '{setting}' is of invalid type, defaulting to {val}")
         # If the value in our settings file is valid
-        elif settingsFile[setting] in settingsPossible[setting]:
+        elif settingsFile[setting] in posVals:
             dprint(f"Found valid value: '{settingsFile[setting]}' for setting: '{setting}'")
             # Write it into our settings
             settings[setting] = settingsFile[setting]
-        else :
+        else:
             # Warn the user of invalid settings in the settings file
-            print(f"Value: '{settingsFile[setting]}' for setting: '{setting}' is invalid, defaulting to {settings[setting]}")
+            print(f"Value: '{settingsFile[setting]}' for setting: '{setting}' is invalid, defaulting to {val}")
     # Debug info
     dprint(f"Settings are {settings}")
 
 # Keypress processing
+
 
 def parseVars(commandStr: str, vars: JSON) -> str:
     """
@@ -783,12 +807,12 @@ def parseVars(commandStr: str, vars: JSON) -> str:
     Backslash percent breaks JSON decoder.  Use %% instead.
     """
     dprint('parseVars', commandStr, vars)
-    returnStr = ''      # The string to be returned
-    escaped = False     # we encountered an escape char
-    escapeChar = "\\"   # What is our escape char
-    varChars = ("%", "%") # What characters start and end a variable name
-    inVar = False       # If we are in a variable name
-    varName = ''        # What the variables name is so far
+    returnStr = ''          # The string to be returned
+    escaped = False         # we encountered an escape char
+    escapeChar = "\\"       # What is our escape char
+    varChars = ("%", "%")   # What characters start and end a variable name
+    inVar = False           # If we are in a variable name
+    varName = ''            # What the variables name is so far
 
     # Iterate over the chars of the input
     for char in commandStr:
@@ -804,21 +828,22 @@ def parseVars(commandStr: str, vars: JSON) -> str:
             continue
 
         # If we aren't in a variable and chars is the start of one set inVar
-        if (not inVar) and char == varChars[0] :
+        if (not inVar) and char == varChars[0]:
             inVar = True
             continue
 
         # If we are in a variable and char ends it
-        if inVar and char == varChars[1] :
+        if inVar and char == varChars[1]:
             # parse the variables value,
             # add it to returnStr if valid, and reset inVar and varName
-            try :
+            try:
                 returnStr += vars[varName]
-            except KeyError :
+            except KeyError:
                 if not varName:
                     returnStr += '%'
                 else:
-                    print(f"unknown var {varName} in command {commandStr}, skipping command")
+                    print("unknown var", varName, "in command", commandStr,
+                          "skipping command")
                     return ""
 
             inVar = False
@@ -835,6 +860,7 @@ def parseVars(commandStr: str, vars: JSON) -> str:
 
     dprint('parseVars =>', returnStr)
     return returnStr
+
 
 def getHistory():
     """
@@ -859,27 +885,30 @@ def getLayers():
     """
     print("Available Layers:\n")
     layerFt = ".json"
-    layerFi = {}
     # Get a list of paths to all files that match our file extension
     layers = [
         i for i in os.listdir(layerDir) if os.path.splitext(i)[1] == layerFt
     ]
+    # key - path, value - layer JSON
+    layerFi = {}
     for f in layers:
-        with open(os.path.join(layerDir, f)) as file_object:
+        with open(os.path.join(layerDir, f), encoding='utf-8') as file_object:
             # Build a list of the files at those paths
             layerFi[f] = file_object.read()
 
-    for i in layerFi:
+    for i, val in layerFi.items():
         # And display their contents to the user
-        print(i + layerFi[i])
+        print(i + val)
     end()
 
-def detectKeyboard(path = "/dev/input/by-id/"):
+
+def detectKeyboard(path: str = "/dev/input/by-id/"):
     """
     Detect what file a keypress is coming from
     """
     # Warn the user we need sudo
-    print("Gaining sudo to watch root owned files, may prompt you for a password")
+    print("Gaining sudo to watch root owned files, may prompt you for a "
+          "password")
     # Get sudo
     subprocess.run(["sudo", "echo",  "have sudo"])
 
@@ -889,22 +918,22 @@ def detectKeyboard(path = "/dev/input/by-id/"):
     dev = ""
     # Wait for this command to output the device name, loops every 1s
     while not dev:
-        dev = subprocess.check_output("sudo inotifywatch " + path +"/* -t 1 2>&1 | grep " + path + " | awk 'NF{ print $NF }'", shell=True ).decode('utf-8').strip()
+        cmd = "sudo inotifywatch " + path + "/* -t 1 2>&1 | grep " + path + \
+              " | awk 'NF{ print $NF }'"
+        dev = subprocess.check_output(cmd, shell=True).decode('utf-8').strip()
     return dev
 
-def addKey(layer = "default.json", key = None, command = None,
-           keycodeTimeout = 1) -> None:
+
+def addKey(layer: str = "default.json", key: Optional[str] = None,
+           command: Optional[str] = None, keycodeTimeout=1) -> None:
     """
     Shell for adding new macros
     """
-    if key is None and command is None:
-        relaunch = True
-    else:
-        relaunch = False
-
+    relaunch = key is None and command is None
     if command is None:
         # Get the command the user wishes to bind
-        command = input("Enter the command you would like to attribute to a key on your keyboard\n")
+        command = input("Enter the command you would like to attribute to a "
+                        "key on your keyboard\n")
         # If the user entered a layer switch command
         if command.startswith("layer:"):
             # Check if the layer json file exits
@@ -916,34 +945,32 @@ def addKey(layer = "default.json", key = None, command = None,
                 print("Created layer file:", path)
 
                 print("standard LEDs:")
-                for led in standardLeds.items(): # For all LEDs on most boards
-                    print(f"-{led[0]}: {led[1]}") # List it
+                for led in standardLeds.items():    # For all LEDs
+                    print(f"-{led[0]}: {led[1]}")   # List it
 
                 # Prompt the user for a list of LED numbers
-                onLeds = input("Please choose what LEDs should be enable on this layer (comma and/or space separated list)")
+                onLeds = input(
+                    "Please choose what LEDs should be enabled on this layer "
+                    "(comma and/or space separated list)")
                 # Split the input list
-                onLeds = onLeds.replace(",", " ").split()
-                onLedsInt = []
-                # For all strs in the split list
-                for led in onLeds:
-                    # Cast the str to int and add it to a list
-                    onLedsInt.append(int(led))
+                onLeds = onLeds.replace(",", " ")
+                onLedsInt = [int(led) for led in onLeds.split()]
                 # Write the input list to the layer file
                 writeJson(path, {"leds": onLedsInt})
 
     if key is None:
-        print(f"Please the execute the keystrokes you would like to assign to the command to and wait for the next prompt.")
+        print("Please execute the keystrokes you would like to assign "
+              "to the command to and wait for the next prompt.")
         key = getHistory()
 
     # Ask the user if we (and they) got the command and binding right
     inp = input(f"Assign {command} to [{key}]? [Y/n] ")
-    if inp == 'Y' or inp == '': # If we did
+    if inp in ('Y', ''):    # If we did
         newMacro = {}
         newMacro[key] = command
         # Write the binding into our layer json file
         writeJson(layer, newMacro)
         print(newMacro)
-
     else:
         # Confirm we have cancelled the binding
         print("Addition cancelled.")
@@ -951,9 +978,10 @@ def addKey(layer = "default.json", key = None, command = None,
     if relaunch:
         # Offer the user to add another binding
         rep = input("Would you like to add another Macro? [Y/n] ")
-        if rep == 'Y' or rep == '': # If they say yes
-            addKey(layer) # Restart the shell
+        if rep in ('Y', ''):    # If they say yes
+            addKey(layer)       # Restart the shell
         end()
+
 
 def editSettings() -> None:
     """
@@ -963,11 +991,7 @@ def editSettings() -> None:
     # Get a dict of the keys and values in our settings file
     settingsFile = readJson("settings.json", dataDir)
     # Create a list for key-value pairs of settings
-    settingsList = []
-    # For every key-value pair in our settings dict
-    for setting in settings.items():
-        # Add the pair to our list of setting pairs
-        settingsList += [setting, ]
+    settingsList = [setting for setting in settings.items()]
     # Ask the user to choose which setting they wish to edit
     print("Choose what value you would like to edit.")
     # Print an entry for every setting, as well as a number associated with
@@ -978,14 +1002,13 @@ def editSettings() -> None:
 
     # Take the users input as to which setting they wish to edit
     selection = input("Please make you selection: ")
-
     try:
         # Convert the users input from str to int
         intSelection = int(selection)
 
-    except ValueError: # If the conversion to int fails
-        print("Exiting...") # Tell the user we are exiting
-        end() # And do so
+    except ValueError:          # If the conversion to int fails
+        print("Exiting...")     # Tell the user we are exiting
+        end()                   # And do so
 
     if intSelection in range(1, len(settingsList) + 1):
         # If the users input corresponds to a listed setting
@@ -994,55 +1017,59 @@ def editSettings() -> None:
         # Tell the user we are their selection
         print(f"Editing item '{settingSelected}'")
 
-    else: # If the users input does not correspond to a listed setting
-        print("Input out of range, exiting...") # Tell the user we are exiting
-        end() # And do so
+    else:       # If the users input does not correspond to a listed setting
+        print("Input out of range, exiting...")  # Tell the user we are exiting
+        end()   # And do so
 
-    if type == settingsPossible[settingSelected][0]:
+    posVals = settingsPossible[settingSelected]
+    if type == posVals[0]:
         # If first element of settingsPossible is type
-        print(f"Enter a value {settingSelected} that is of one of these types.")
-        # For the index number of every valid type of the users selected setting
-        for valueIndex in range(1, len(settingsPossible[settingSelected])):
+        print("Enter a value", settingSelected,
+              "that is of one of these types.")
+        # For the index number of every valid type of the users selected
+        # setting
+        for valueIndex in range(1, len(posVals)):
             # Print an entry for every valid type
-            print("- " + settingsPossible[settingSelected][valueIndex].__name__)
+            print("- " + posVals[valueIndex].__name__)
         # Prompt the user for input
         selection = input("Please enter a value: ")
-        if not selection: # If none is provided
+        if not selection:               # If none is provided
             print("Exiting...")
-            end() # Exit
+            end()                       # Exit
         # For all the valid types
-        for typePossible in settingsPossible[settingSelected]:
+        for typePossible in posVals:
             dprint(typePossible)
-            if typePossible == type: # If it is type
+            if typePossible == type:    # If it is type
                 continue
             try:
                 # Cast the users input to the type
                 selection = typePossible(selection)
                 break
-            except ValueError: # If casting fails
+            except ValueError:          # If casting fails
                 pass
 
         # If we have successfully casted to a valid type
-        if type(selection) in settingsPossible[settingSelected]:
+        if type(selection) in posVals:
             # Write the setting into the settings file
             writeJson("settings.json", {settingSelected: selection}, dataDir)
             print(f"Set '{settingSelected}' to '{selection}'")
         else:
             # Complain about the bad input
             print("Input can't be casted to a supported type, exiting...")
-            end() # And exit
+            end()       # And exit
 
     else:
         # Ask the user to choose which value they want to assign to their
         # selected setting
         print(f"Choose one of {settingSelected}\'s possible values.")
-        # For the index number of every valid value of the users selected setting
-        for valueIndex in range(0, len(settingsPossible[settingSelected])):
+        # For the index number of every valid value of the users selected
+        # setting
+        for valueIndex in range(0, len(posVals)):
             # Print an entry for every valid value, as well as a number
             # associate, with no newline
-            print(f"-{valueIndex + 1}: {settingsPossible[settingSelected][valueIndex]}", end = "")
+            print(f"-{valueIndex + 1}: {posVals[valueIndex]}", end="")
             # If a value is the current value of the selected setting
-            if settingsPossible[settingSelected][valueIndex] == settings[settingSelected]:
+            if posVals[valueIndex] == settings[settingSelected]:
                 # Tell the user and add a newline
                 print("   [current]")
             else:
@@ -1051,44 +1078,45 @@ def editSettings() -> None:
         # Take the users input as to which value they want to assign to their
         # selected setting
         selection = input("Please make you selection: ")
-
         try:
             # Convert the users input from str to int
             intSelection = int(selection)
             # If the users input corresponds to a listed value
-            if intSelection in range(1, len(settingsPossible[settingSelected]) + 1):
+            if intSelection in range(1, len(posVals) + 1):
                 # Store the selected value
-                valueSelected = settingsPossible[settingSelected][int(selection) - 1]
+                valueSelected = posVals[int(selection) - 1]
                 # Write it into our settings json file
-                writeJson("settings.json", {settingSelected: valueSelected}, dataDir)
+                writeJson(
+                    "settings.json", {settingSelected: valueSelected}, dataDir)
                 # And tell the user we have done so
                 print(f"Set '{settingSelected}' to '{valueSelected}'")
 
-            else: # If the users input does not correspond to a listed value
+            else:   # If the users input does not correspond to a listed value
                 # Tell the user we are exiting
                 print("Input out of range, exiting...")
-                end() # And do so
+                end()       # And do so
 
-        except ValueError: # If the conversion to int fails
-            print("Exiting...") # Tell the user we are exiting
-            end() # And do so
+        except ValueError:          # If the conversion to int fails
+            print("Exiting...")     # Tell the user we are exiting
+            end()                   # And do so
     # Refresh the settings in our settings dict with the newly changed setting
     getSettings()
     # Offer the user to edit another setting
     rep = input("Would you like to change another setting? [Y/n] ")
-    if rep == 'Y' or rep == '': # If they say yes
-        editSettings() # Restart the shell
+    if rep in ('Y', ''):            # If they say yes
+        editSettings()              # Restart the shell
     else:
         end()
 
-def editLayer(layer = "default.json"):
+
+def editLayer(layer: str = "default.json"):
     """
     Shell for editing a layer file (default by default)
     """
     # Get a dict of keybindings in the layer file
     LayerDict = readJson(layer, layerDir)
 
-    keybindingsList = [] # Create a list for key-value pairs of keybindings
+    keybindingsList = []    # Create a list for key-value pairs of keybindings
     # For every key-value pair in our layers dict
     for keybinding in LayerDict.items():
         # Add the pair to our list of keybinding pairs
@@ -1121,36 +1149,29 @@ def editLayer(layer = "default.json"):
         else:
             # Tell the user we are exiting
             print("Input out of range, exiting...")
-            end() # And do so
+            end()               # And do so
 
-    except ValueError: # If the conversion to int fails
-        print("Exiting...") # Tell the user we are exiting
-        end() # And do so
+    except ValueError:          # If the conversion to int fails
+        print("Exiting...")     # Tell the user we are exiting
+        end()                   # And do so
 
     if bindingSelected == "leds":
         print("standard LEDs:")
-        for led in standardLeds.items(): # For all LEDs on most boards
-            print(f"-{led[0]}: {led[1]}") # List it
+        for led in standardLeds.items():    # For all LEDs on most boards
+            print(f"-{led[0]}: {led[1]}")   # List it
 
         # Prompt the user for a list of LED numbers
         onLeds = input("Please choose what LEDs should be enable on this layer (comma and/or space separated list)")
-        onLeds = onLeds.replace(",", " ").split() # Split the input list
-
-        onLedsInt = []
-        for led in onLeds: # For all strs in the split list
-            # Cast the str to int and add it to a list
-            onLedsInt.append(int(led))
+        onLeds = onLeds.replace(",", " ")
+        onLedsInt = [int(led) for led in onLeds.split()]
         # Write the input list to the layer file
         writeJson(layer, {"leds": onLedsInt})
 
     elif bindingSelected == "vars":
         # Get a dict of layer vars in the layer file
         varsDict = readJson(layer, layerDir)["vars"]
-
-        varsList = [] # Create a list for key-value pairs of layer vars
-        # For every key-value pair in our layer vars dict
-        for var in varsDict.items():
-            varsList += [var, ] # Add the pair to our list of layer var pairs
+        # Create a list for key-value pairs of layer vars
+        varsList = [var for var in varsDict.items()]
 
         # Ask the user to choose which var they wish to edit
         print("Choose what variable you would like to edit.")
@@ -1175,10 +1196,10 @@ def editLayer(layer = "default.json"):
             else:
                 # Tell the user we are exiting
                 print("Input out of range, exiting...")
-                end() # And do so
+                end()               # And do so
 
-        except ValueError: # If the conversion to int fails
-            print("Exiting...") # Tell the user we are exiting
+        except ValueError:          # If the conversion to int fails
+            print("Exiting...")     # Tell the user we are exiting
             end() # And do so
 
         # Ask the user to choose what they want to do with their selected var
@@ -1189,14 +1210,14 @@ def editLayer(layer = "default.json"):
         print("-3: Edit variable value.")
         print("-4: Cancel.")
 
-        # Take the users input as to what they want to do with their selected var
+        # Take the users input as to what they want to do with their selection
         selection = input("Please make you selection: ")
         try:
             # Convert the users input from str to int
             intSelection = int(selection)
-            if intSelection == 1: # If the user selected delete
-                popJson(layer, ["vars", varSelected]) # Remove the var
-            elif intSelection == 2: # If the user selected edit name
+            if intSelection == 1:       # If the user selected delete
+                popJson(layer, ["vars", varSelected])   # Remove the var
+            elif intSelection == 2:     # If the user selected edit name
                 # Ask the user for a new name
                 varName = input("Please input new name: ")
                 # Add new name and value to varDict
@@ -1206,63 +1227,64 @@ def editLayer(layer = "default.json"):
                 # Note: if the user replaces the original name with the same
                 # name this will delete the binding
                 popJson(layer, ["vars", varSelected])
-            elif intSelection == 3: # If the user selected edit value
+            elif intSelection == 3:     # If the user selected edit value
                 # Ask the user for a new value
                 varVal = input("Please input new value: ")
                 # Update name to new value in varDict
                 varsDict.update({varSelected: varVal})
                 # Set layer's vars to varDict
                 writeJson(layer, {"vars": varsDict})
-            elif intSelection == 4: # If the user selected cancel
-                pass # Pass back to the previous level
+            elif intSelection == 4:     # If the user selected cancel
+                pass                    # Pass back to the previous level
 
-            else: # If the users input does not correspond to a listed value
+            else:   # If the users input does not correspond to a listed value
                 # Tell the user we are exiting
                 print("Input out of range, exiting...")
-                end() # And do so
+                end()                   # And do so
 
-        except ValueError: # If the conversion to int fails
-            print("Exiting...") # Tell the user we are exiting
-            end() # And do so
+        except ValueError:          # If the conversion to int fails
+            print("Exiting...")     # Tell the user we are exiting
+            end()                   # And do so
 
     else:
-        # Ask the user to choose what they want to do with their selected binding
+        # Ask the user to choose what to do with their selected binding
         print(f"Choose am action to take on {bindingSelected}.")
         # Prompt the user with a few possible actions
         print("-1: Delete binding.")
         print("-2: Edit binding key.")
         print("-3: Edit binding command.")
         print("-4: Cancel.")
-        # Take the users input as to what they want to do with their selected binding
+        # Take the users input as to what they want to do with the selected
+        # binding
         selection = input("Please make you selection: ")
         try:
             # Convert the users input from str to int
             intSelection = int(selection)
-            if intSelection == 1: # If the user selected delete
-                popJson(layer, bindingSelected) # Remove the binding
+            if intSelection == 1:       # If the user selected delete
+                popJson(layer, bindingSelected)     # Remove the binding
 
-            elif intSelection == 2: # If the user selected edit key
+            elif intSelection == 2:     # If the user selected edit key
                 # Launch the key addition shell and preserve the command
-                addKey(layer, command = LayerDict[bindingSelected])
+                addKey(layer, command=LayerDict[bindingSelected])
                 # Note: if the user replaces the original key with the same key
                 # this will delete the binding
                 popJson(layer, bindingSelected)
 
-            elif intSelection == 3: # If the user selected edit command
+            elif intSelection == 3:     # If the user selected edit command
                 # Launch the key addition shell and preserve the key
-                addKey(layer, key = bindingSelected)
+                addKey(layer, key=bindingSelected)
 
-            elif intSelection == 4: # If the user selected cancel
-                pass # Pass back to the previous level
+            elif intSelection == 4:     # If the user selected cancel
+                pass                    # Pass back to the previous level
 
-            else: # If the users input does not correspond to a listed value
+            else:       # If the input does not correspond to a listed value
                 # Tell the user we are exiting
                 print("Input out of range, exiting...")
-                end() # And do so
+                end()   # And do so
 
-        except ValueError: # If the conversion to int fails
-            print("Exiting...") # Tell the user we are exiting
-            end() # And do so
+        except ValueError:          # If the conversion to int fails
+            print("Exiting...")     # Tell the user we are exiting
+            end()                   # And do so
 
     # Offer the user to edit another binding
     rep = input("Would you like to edit another binding? [Y/n] ")
@@ -1273,20 +1295,23 @@ def editLayer(layer = "default.json"):
     else:
         end()
 
+
 def newDevice(eventPath: str = "/dev/input/") -> None:
     """Add a new json file to devices/."""
     print("Setting up device")
 
     # Prompt the user for a layer filename
-    initialLayer = input("Please provide a name for for this devices initial layer (non-existent layers will be created, default.json by default): ")
+    initialLayer = input(
+        "Please provide a name for for this device's initial layer "
+        "(non-existent layers will be created, default.json by default): ")
 
     # If the user did not provide a layer name
-    if initialLayer.strip() == "":
-        initialLayer = "default.json" # Default to default.json
+    if not initialLayer.strip():
+        initialLayer = "default.json"   # Defaults to default.json
 
     if not os.path.exists(os.path.join(layerDir, initialLayer)):
         # If the users chosen layer does not exist
-        createLayer(initialLayer) # Create it
+        createLayer(initialLayer)       # Create it
 
     # Prompt the user for a device
     eventFile = detectKeyboard(eventPath)
@@ -1294,7 +1319,8 @@ def newDevice(eventPath: str = "/dev/input/") -> None:
     eventFile = os.path.basename(eventFile)
 
     # Ensure the stdin is empty
-    input("\nA udev rule will be made next, sudo may prompt you for a password. Press enter to continue...")
+    input("\nA udev rule will be made next, sudo may prompt you for a password."
+          " Press enter to continue...")
     # Construct the device data dict
     deviceJsonDict = {
         "initial_layer": initialLayer,
@@ -1309,7 +1335,8 @@ def newDevice(eventPath: str = "/dev/input/") -> None:
     macroDevice(eventFile + ".json").addUdevRule()
     end()
 
-def removeDevice(name: str = None) -> None:
+
+def removeDevice(name: Optional[str] = None) -> None:
     """Removes a device file from deviceDir and udev rule based on passed name.
     If no name is passed prompt the user to choose one."""
     if name is None:
@@ -1331,18 +1358,19 @@ def removeDevice(name: str = None) -> None:
     udevRule = readJson(name, deviceDir)["udev_rule"]
 
     # Warn the user we need sudo
-    print("removing device file and udev rule, sudo may prompt you for a password.")
+    print(
+        "removing device file and udev rule, sudo may prompt you for a "
+        "password.")
     # Remove the device file
     os.remove(os.path.join(deviceDir, name))
     # Remove the udev rule
-    subprocess.run([
-        "sudo",
-        "rm",
-        "-f",
-        os.path.join("/etc/udev/rules.d", udevRule)])
+    subprocess.run(
+        ["sudo", "rm", "-f", os.path.join("/etc/udev/rules.d", udevRule)],
+        check=False)
     end()
 
 # Setup
+
 
 def firstUses() -> None:
     """
@@ -1353,7 +1381,6 @@ def firstUses() -> None:
     copytree(src, dataDir, dirs_exist_ok=True)
     # And inform the user
     print(f"Configuration files copied from {src} to {dataDir}")
-
 
 # Inter-process communication
 
@@ -1367,12 +1394,13 @@ def savePid() -> None:
         dprint("PID already recorded")
         raise FileExistsError("PID already recorded")
     # Create and open the PID file
-    with open(pidPath, "wt") as pidFile:
+    with open(pidPath, "wt", encoding='utf-8') as pidFile:
         # Write our PID into it
         pidFile.write(str(os.getpid()))
         # Record that we have saved our PID
         global savedPid
         savedPid = True
+
 
 def removePid() -> None:
     """
@@ -1389,17 +1417,19 @@ def removePid() -> None:
     else:
         print("PID was never stored?")
 
+
 def getPid() -> int:
     """
     Return the PID stored in the PID file.
     Raise FileNotFoundError if the file does not exist.
     """
     if os.path.exists(pidPath):
-        with open(pidPath, "rt") as pidFile:
+        with open(pidPath, "rt", encoding='utf-8') as pidFile:
             # And return it's contents as an int
             return int(pidFile.read())
     dprint("PID file doesn't exist")
     raise FileNotFoundError("PID file doesn't exist")
+
 
 def checkPid() -> None:
     """
@@ -1420,6 +1450,7 @@ def checkPid() -> None:
         removePid() # Remove the PID file since its wrong
         raise ProcessLookupError("PID invalid")
 
+
 def sendStop() -> None:
     """
     If a valid PID is found in the PID file send SIGINT to the process.
@@ -1428,29 +1459,35 @@ def sendStop() -> None:
         dprint("Sending stop")
         # Check if the PID file point's to a valid process
         checkPid()
-        os.kill(getPid(), signal.SIGINT) # Stop the process
+        os.kill(getPid(), signal.SIGINT)    # Stop the process
 
     except (FileNotFoundError, ProcessLookupError):
         # If the PID file doesn't exist or the process isn't valid
         dprint("No process to stop")
 
-def sendPause(waitSafeTime = None) -> None:
+
+def sendPause(waitSafeTime=None) -> None:
     """If a valid PID is found in the PID file send SIGUSR1 to the process."""
     try:
         dprint("Sending pause")
-        checkPid() # Check if the PID file point's to a valid process
+        checkPid()      # Check if the PID file point's to a valid process
         global havePaused
-        havePaused = True # Save that we have paused the process
-        os.kill(getPid(), signal.SIGUSR1) # Pause the process
+        havePaused = True   # Save that we have paused the process
+        os.kill(getPid(), signal.SIGUSR1)   # Pause the process
         if waitSafeTime is None:
             # Set how long we should wait
-            waitSafeTime = settings["loopDelay"] * 3
+            delay = settings["loopDelay"]
+            if isinstance(delay, float):
+                waitSafeTime = delay * 3
+            else:
+                waitSafeTime = 0.3
         # Wait a bit to make sure the process paused itself
         time.sleep(waitSafeTime)
 
     except (FileNotFoundError, ProcessLookupError):
         # If the PID file doesn't exist or the process isn't valid
         dprint("No process to pause")
+
 
 def sendResume():
     """If a valid PID is found in the PID file send SIGUSR2 to the process."""
@@ -1459,28 +1496,30 @@ def sendResume():
         # Check if the PID file point's to a valid process
         checkPid()
         global havePaused
-        havePaused = False # Save that we have resumed the process
-        os.kill(getPid(), signal.SIGUSR2) # Resume the process
+        havePaused = False  # Save that we have resumed the process
+        os.kill(getPid(), signal.SIGUSR2)   # Resume the process
 
     except (FileNotFoundError, ProcessLookupError):
         # If the PID file doesn't exist or the process isn't
         dprint("No process to resume")
 
+
 def pause(signal, frame):
     """Ungrab all macro devices."""
     print("Pausing...")
     global paused
-    paused = True # Save that we have been paused)
+    paused = True       # Save that we have been paused)
     # Ungrab all devices so the pausing process can use them
     ungrabMacroDevices()
     # Close our macro devices
     closeDevices()
 
+
 def resume(signal, frame):
     """Grab all macro devices and refresh our setting after being paused
     (or just if some changes were made we need to load)."""
     print("Resuming...")
-    getSettings() # Refresh our settings
+    getSettings()       # Refresh our settings
     # If we were paused prior
     global paused
     if paused:
@@ -1499,88 +1538,85 @@ def build_parser():
     parser.add_argument(
         "--layers", "-l", help="Show saved layer files", action="store_true")
     parser.add_argument(
-        "--detect", "-d", help="Detect keyboard device file", action="store_true")
+        "--detect", "-d", help="Detect keyboard device file",
+        action="store_true")
     parser.add_argument(
-        "--print-keys", "-k", help="Print a series of keystrokes", action="store_true")
+        "--print-keys", "-k", help="Print a series of keystrokes",
+        action="store_true")
+    help = "Adds new macros to the selected layer file " + \
+        "(or default layer if unspecified)"
     try:
         parser.add_argument(
-            "--add", "-a",
-            help="Adds new macros to the selected layer file (or default layer if unspecified)",
-            nargs="?",
-            default=False, const="default.json", metavar="layer",
+            "--add", "-a", help=help, nargs="?", default=False,
+            const="default.json", metavar="layer",
             choices=[
                 i for i in os.listdir(layerDir)
                 if os.path.splitext(i)[1] == ".json"
             ])
-    except FileNotFoundError :
+    except FileNotFoundError:
         parser.add_argument(
-            "--add", "-a",
-            help="Adds new macros to the selected layer file (or default layer if unspecified)", nargs="?",
-            default=False, const="default.json", metavar="layer")
+            "--add", "-a", help=help, nargs="?", default=False,
+            const="default.json", metavar="layer")
 
     parser.add_argument(
         "--settings", "-s", help="Edits settings file", action="store_true")
 
+    help = "Edits specified layer file (or default layer if unspecified)"
     try:
         parser.add_argument(
-            "--edit", "-e",
-            help="Edits specified layer file (or default layer if unspecified)",
-            nargs="?", default=False, const="default.json", metavar="layer",
+            "--edit", "-e", help=help, nargs="?", default=False,
+            const="default.json", metavar="layer",
             choices=[
                 i for i in os.listdir(layerDir)
                 if os.path.splitext(i)[1] == ".json"
             ])
-    except FileNotFoundError :
+    except FileNotFoundError:
         parser.add_argument(
-            "--edit", "-e",
-            help="Edits specified layer file (or default layer if unspecified)",
-            nargs="?", default=False, const="default.json", metavar="layer")
+            "--edit", "-e", help=help, nargs="?", default=False,
+            const="default.json", metavar="layer")
 
     parser.add_argument(
         "--new", "-n", help="Add a new device file", action="store_true")
 
+    help = "Remove specified device, if no device is specified" + \
+        " you will be prompted"
     try:
         parser.add_argument(
-            "--remove", "-r",
-            help="Remove specified device, if no device is specified you will be prompted",
-            nargs="?", default=False, const=True, metavar="device",
+            "--remove", "-r", help=help, nargs="?", default=False, const=True,
+            metavar="device",
             choices=[
                 i for i in os.listdir(deviceDir)
                 if os.path.splitext(i)[1] == ".json"
             ])
-    except FileNotFoundError :
+    except FileNotFoundError:
         parser.add_argument(
-            "--remove", "-r",
-            help="Remove specified device, if no device is specified you will be prompted",
-            nargs="?", default=False, const=True, metavar="device")
+            "--remove", "-r", help=help, nargs="?", default=False, const=True,
+            metavar="device")
 
     parser.add_argument(
-        "--pause", "-P",
-        help="Pause a running keebie instance that is processing macros",
-        action="store_true")
+        "--pause", "-P", action="store_true",
+        help="Pause a running keebie instance that is processing macros")
 
     parser.add_argument(
         "--resume", "-R",
         help="Resume a keebie instance paused by --pause", action="store_true")
 
     parser.add_argument(
-        "--stop", "-S",
-        help="Stop a running keebie instance that is processing macros",
-        action="store_true")
+        "--stop", "-S", action="store_true",
+        help="Stop a running keebie instance that is processing macros")
 
     parser.add_argument(
-        "--install", "-I",
-        help="Install default files to your ~/.config/keebie directory",
-        action="store_true")
+        "--install", "-I", action="store_true",
+        help="Install default files to your ~/.config/keebie directory")
 
     parser.add_argument(
-        "--verbose", "-v",
-        help="Print extra debugging information",
-        action="store_true")
+        "--verbose", "-v", action="store_true",
+        help="Print extra debugging information")
 
     parser.add_argument(
         "--quiet", "-q", help="Print less", action="store_true")
     return parser
+
 
 def main():
     parser = build_parser()
@@ -1598,8 +1634,7 @@ def main():
 
     if not os.path.exists(dataDir):
         # If the user we are running as does not have user configuration files
-        # Inform the user
-        print("You are running keebie without user configuration files installed")
+        print("No user configuration files detected...")
         # Run first time user setup
         firstUses()
 
@@ -1608,7 +1643,7 @@ def main():
     # Get settings from the json file in config
     getSettings()
 
-    if args.layers: # If the user passed --layers
+    if args.layers:
         # Show the user all layer json files and their contents
         getLayers()
 
@@ -1621,52 +1656,53 @@ def main():
         print(getHistory())
         end()
 
-    elif args.add: # If the user passed --add
+    elif args.add:
         # Ask a running keebie loop (if one exists) to pause
         # so we can use the devices
         sendPause()
 
         grabMacroDevices()
-        addKey(args.add) # Launch the key addition shell
+        addKey(args.add)    # Launch the key addition shell
 
-    elif args.settings: # If the user passed --settings
+    elif args.settings:
         # Ask a running keebie loop (if one exists) to pause so it will reload
         # its settings when we're done
         sendPause()
         # Launch the setting editing shell
         editSettings()
 
-    elif args.detect: # If the user passed --detect
+    elif args.detect:
         # Launch the keyboard detection function
         print(detectKeyboard("/dev/input/"))
 
-    elif args.edit: # If the user passed --edit
-         # Ask a running keebie loop (if one exists) to pause so we can use
-         # the devices
+    elif args.edit:
+        # Ask a running keebie loop (if one exists) to pause so we can use
+        # the devices
         sendPause()
         grabMacroDevices()
-        editLayer(args.edit) # Launch the layer editing shell
+        editLayer(args.edit)    # Launch the layer editing shell
 
-    elif args.new: # If the user passed --new
+    elif args.new:
         # Ask a running keebie loop (if one exists) to pause so it will detect
         # the new device when we're done
         sendPause()
         # Launch the device addition shell
         newDevice()
 
-    elif args.remove: # If the user passed --remove
-         # Ask a running keebie loop (if one exists) to pause so it will detect
-         # the removed device when we're done
+    elif args.remove:
+        # Ask a running keebie loop (if one exists) to pause so it will detect
+        # the removed device when we're done
         sendPause()
         # Launch the device removal shell
         removeDevice(args.remove)
 
-    elif args.pause: # If the user passed --pause
-        sendPause(0) # Ask a running keebie loop (if one exists) to pause
+    elif args.pause:
+        sendPause(0)    # Ask the running keebie loop (if one exists) to pause
+        global havePaused
         havePaused = False
 
-    elif args.resume: # If the user passed --resume
-        sendResume() # Ask a running keebie loop (if one exists) to resume
+    elif args.resume:
+        sendResume()    # Ask the running keebie loop (if one exists) to resume
 
     # If the user passed --stop
     elif args.stop:
@@ -1689,7 +1725,8 @@ def main():
             try:
                 # Check if it is valid, this will raise an error if it isn't
                 checkPid()
-                print("Another instance of keebie is already running, exiting...")
+                print("Another instance of keebie is already running,"
+                      " exiting...")
                 end()
 
             # If the PID file points to an invalid PID...
@@ -1704,15 +1741,16 @@ def main():
         signal.signal(signal.SIGUSR2, resume)
 
         time.sleep(.5)
-        grabMacroDevices() # Grab all the devices
+        grabMacroDevices()  # Grab all the devices
 
-        while True : # Enter an infinite loop
+        while True:
             if not paused:
                 # Read all devices and process the keycodes
                 readDevices()
 
             # Sleep so we don't eat the poor little CPU
             time.sleep(settings["loopDelay"])
+
 
 if __name__ == '__main__':
     main()
